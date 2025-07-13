@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Transparent background -->
+  <rect width="1024" height="1024" fill="none"/>
+  <!-- White “N” path for monochrome adaptive icon -->
+  <path d="M256 192h128l256 512V192h128v640H640L384 320v512H256V192z" fill="#FFFFFF"/>
+</svg>
