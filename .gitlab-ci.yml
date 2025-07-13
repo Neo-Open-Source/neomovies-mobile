@@ -20,11 +20,9 @@ before_script:
   # Install build deps & Flutter SDK (cached by GitLab between jobs)
   - apt-get update && apt-get install -y curl git unzip xz-utils zip clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
   - |
-    if [ ! -d "$CI_PROJECT_DIR/flutter" ]; then
+    if [ ! -d "$CI_PROJECT_DIR/flutter/bin" ]; then
       echo "Downloading Flutter $FLUTTER_VERSION";
-      curl -sL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_$FLUTTER_VERSION-stable.tar.xz -o flutter.tar.xz;
-      tar xf flutter.tar.xz;
-      mv flutter $CI_PROJECT_DIR/flutter;
+      curl -sL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_$FLUTTER_VERSION-stable.tar.xz | tar xJf - -C "$CI_PROJECT_DIR";
     fi
   - export PATH="$CI_PROJECT_DIR/flutter/bin:$PATH"
   - flutter --version
