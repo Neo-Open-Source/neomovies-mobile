@@ -32,21 +32,23 @@ before_script:
 
 build_android:
   stage: build
-  before_script:
-    # ← всё из глобального before_script уже выполнено
-    - |
-      if [ ! -d "$CI_PROJECT_DIR/android-sdk" ]; then
-        echo "Installing Android SDK cmdline-tools…"
-        mkdir -p $CI_PROJECT_DIR/android-sdk/cmdline-tools
-        curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip -o tools.zip
-        unzip -q tools.zip -d $CI_PROJECT_DIR/android-sdk/cmdline-tools
-        mv $CI_PROJECT_DIR/android-sdk/cmdline-tools/cmdline-tools $CI_PROJECT_DIR/android-sdk/cmdline-tools/latest
-      fi
-    - export ANDROID_HOME=$CI_PROJECT_DIR/android-sdk
-    - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
-    - yes | sdkmanager --licenses
-    - sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
   script:
+    # install Android SDK once and cache
+    - |
+      if [ ! -d "$CI_PROJECT_DIR/android-sdk/platforms" ]; then
+        echo "Installing Android SDK cmdline-tools…";
+        mkdir -p $CI_PROJECT_DIR/android-sdk/cmdline-tools;
+        curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip -o tools.zip;
+        unzip -q tools.zip -d $CI_PROJECT_DIR/android-sdk/cmdline-tools;
+        mv $CI_PROJECT_DIR/android-sdk/cmdline-tools/cmdline-tools $CI_PROJECT_DIR/android-sdk/cmdline-tools/latest;
+        export ANDROID_HOME=$CI_PROJECT_DIR/android-sdk;
+        export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH;
+        yes | sdkmanager --licenses > /dev/null;
+        sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools";
+      else
+        export ANDROID_HOME=$CI_PROJECT_DIR/android-sdk;
+        export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH;
+      fi
     - flutter build apk --release --dart-define=ENV=production
   artifacts:
     paths:
@@ -55,10 +57,9 @@ build_android:
 
 build_linux:
   stage: build
-  before_script:
-    # global before_script выполнен
-    - apt-get update && apt-get install -y libjsoncpp-dev libsecret-1-dev
   script:
+    # install additional dev libs
+    - apt-get update && apt-get install -y libjsoncpp-dev libsecret-1-dev
     - flutter build linux --release --dart-define=ENV=production
   artifacts:
     paths:
