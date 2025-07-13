@@ -48,10 +48,9 @@ build_android:
       - build/app/outputs/flutter-apk/app-release.apk
       - build/app/outputs/bundle/release/app-release.aab
     expire_in: 1 month
-  only:
-    - main
-    - develop
-    - tags
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
 
 # Сборка Linux приложения
 build_linux:
@@ -74,10 +73,9 @@ build_linux:
     paths:
       - build/linux/x64/release/bundle/
     expire_in: 1 month
-  only:
-    - main
-    - develop
-    - tags
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
 
 # Деплой в Google Play (опционально)
 deploy_android:
@@ -90,9 +88,9 @@ deploy_android:
     - fastlane supply --aab ../build/app/outputs/bundle/release/app-release.aab
   dependencies:
     - build_android
-  only:
-    - tags
-  when: manual
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: manual
 
 # Деплой Linux приложения в GitLab Package Registry
 deploy_linux:
@@ -111,9 +109,9 @@ deploy_linux:
            "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_PROJECT_NAME}/${CI_COMMIT_TAG}/${CI_PROJECT_NAME}-linux-${CI_COMMIT_TAG}.zip"
   dependencies:
     - build_linux
-  only:
-    - tags
-  when: manual
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: manual
 
 # Релиз на GitLab
 release:
@@ -130,6 +128,6 @@ release:
   dependencies:
     - build_android
     - build_linux
-  only:
-    - tags
-  when: manual
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: manual
