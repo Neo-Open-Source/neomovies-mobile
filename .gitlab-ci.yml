@@ -1,13 +1,14 @@
 # NeoMovies – GitLab CI (shared runners only)
 # Builds release APK (Android) and Linux desktop bundle using GitLab.com shared Docker runners.
 
-image: cirrusci/flutter:stable
+image: ubuntu:22.04
 
 stages:
   - build
 
 variables:
   PUB_CACHE: "$CI_PROJECT_DIR/.pub-cache"
+  FLUTTER_VERSION: "3.22.1"
 
 cache:
   key: $CI_JOB_NAME
@@ -16,6 +17,16 @@ cache:
     - build
 
 before_script:
+  # Install build deps & Flutter SDK (cached by GitLab between jobs)
+  - apt-get update && apt-get install -y curl git unzip xz-utils zip clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+  - |
+    if [ ! -d "$CI_PROJECT_DIR/flutter" ]; then
+      echo "Downloading Flutter $FLUTTER_VERSION";
+      curl -sL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_$FLUTTER_VERSION-stable.tar.xz -o flutter.tar.xz;
+      tar xf flutter.tar.xz;
+      mv flutter $CI_PROJECT_DIR/flutter;
+    fi
+  - export PATH="$CI_PROJECT_DIR/flutter/bin:$PATH"
   - flutter --version
   - flutter pub get
 
