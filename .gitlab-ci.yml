@@ -32,6 +32,20 @@ before_script:
 
 build_android:
   stage: build
+  before_script:
+    # ← всё из глобального before_script уже выполнено
+    - |
+      if [ ! -d "$CI_PROJECT_DIR/android-sdk" ]; then
+        echo "Installing Android SDK cmdline-tools…"
+        mkdir -p $CI_PROJECT_DIR/android-sdk/cmdline-tools
+        curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip -o tools.zip
+        unzip -q tools.zip -d $CI_PROJECT_DIR/android-sdk/cmdline-tools
+        mv $CI_PROJECT_DIR/android-sdk/cmdline-tools/cmdline-tools $CI_PROJECT_DIR/android-sdk/cmdline-tools/latest
+      fi
+    - export ANDROID_HOME=$CI_PROJECT_DIR/android-sdk
+    - export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
+    - yes | sdkmanager --licenses
+    - sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
   script:
     - flutter build apk --release --dart-define=ENV=production
   artifacts:
@@ -41,10 +55,10 @@ build_android:
 
 build_linux:
   stage: build
-  # Need extra system packages for GTK etc.
+  before_script:
+    # global before_script выполнен
+    - apt-get update && apt-get install -y libjsoncpp-dev libsecret-1-dev
   script:
-    - apt-get update && apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
-    - flutter config --enable-linux-desktop
     - flutter build linux --release --dart-define=ENV=production
   artifacts:
     paths:
