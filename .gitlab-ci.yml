@@ -21,9 +21,11 @@ before_script:
   - apt-get update && apt-get install -y curl git unzip xz-utils zip clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
   - |
     if [ ! -d "$CI_PROJECT_DIR/flutter/bin" ]; then
-      echo "Downloading Flutter $FLUTTER_VERSION";
-      curl -sL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_$FLUTTER_VERSION-stable.tar.xz | tar xJf - -C "$CI_PROJECT_DIR";
+      echo "Cloning Flutter beta channel...";
+      git clone --depth 1 --branch beta https://github.com/flutter/flutter.git "$CI_PROJECT_DIR/flutter";
     fi
+    # mark cloned repo as safe
+    git config --global --add safe.directory "$CI_PROJECT_DIR/flutter"
   - export PATH="$CI_PROJECT_DIR/flutter/bin:$PATH"
   - flutter --version
   - flutter pub get
