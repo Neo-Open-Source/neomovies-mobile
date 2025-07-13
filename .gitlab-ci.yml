@@ -1,7 +1,7 @@
 # NeoMovies – GitLab CI (shared runners only)
 # Builds release APK (Android) and Linux desktop bundle using GitLab.com shared Docker runners.
 
-image: cirrusci/flutter:3.22
+image: cirrusci/flutter:stable
 
 stages:
   - build
