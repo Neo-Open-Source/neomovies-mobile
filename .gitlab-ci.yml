@@ -1,14 +1,6 @@
-# NeoMovies – GitLab CI (shared runners only)
-# Builds release APK (Android) and Linux desktop bundle using GitLab.com shared Docker runners.
+image: ghcr.io/cirruslabs/flutter:beta
 
-image: ubuntu:22.04
-
-stages:
-  - build
-
-variables:
-  PUB_CACHE: "$CI_PROJECT_DIR/.pub-cache"
-  FLUTTER_VERSION: "3.22.1"
+stages: [build]
 
 cache:
   key: $CI_JOB_NAME
@@ -16,50 +8,26 @@ cache:
     - .pub-cache
     - build
 
-before_script:
-  # Install build deps & Flutter SDK (cached by GitLab between jobs)
-  - apt-get update && apt-get install -y curl git unzip xz-utils zip clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
-  - |
-    if [ ! -d "$CI_PROJECT_DIR/flutter/bin" ]; then
-      echo "Cloning Flutter beta channel...";
-      git clone --depth 1 --branch beta https://github.com/flutter/flutter.git "$CI_PROJECT_DIR/flutter";
-    fi
-    # mark cloned repo as safe
-    git config --global --add safe.directory "$CI_PROJECT_DIR/flutter"
-  - export PATH="$CI_PROJECT_DIR/flutter/bin:$PATH"
-  - flutter --version
-  - flutter pub get
-
+# --------------------------------------------------------------------------------
 build_android:
+  image: ghcr.io/cirruslabs/flutter:beta-android   # уже содержит SDK
   stage: build
   script:
-    # install Android SDK once and cache
-    - |
-      if [ ! -d "$CI_PROJECT_DIR/android-sdk/platforms" ]; then
-        echo "Installing Android SDK cmdline-tools…";
-        mkdir -p $CI_PROJECT_DIR/android-sdk/cmdline-tools;
-        curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip -o tools.zip;
-        unzip -q tools.zip -d $CI_PROJECT_DIR/android-sdk/cmdline-tools;
-        mv $CI_PROJECT_DIR/android-sdk/cmdline-tools/cmdline-tools $CI_PROJECT_DIR/android-sdk/cmdline-tools/latest;
-        export ANDROID_HOME=$CI_PROJECT_DIR/android-sdk;
-        export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH;
-        yes | sdkmanager --licenses > /dev/null;
-        sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools";
-      else
-        export ANDROID_HOME=$CI_PROJECT_DIR/android-sdk;
-        export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH;
-      fi
+    - flutter pub get
     - flutter build apk --release --dart-define=ENV=production
   artifacts:
     paths:
       - build/app/outputs/flutter-apk/app-release.apk
     expire_in: 1 week
 
+# --------------------------------------------------------------------------------
 build_linux:
   stage: build
-  script:
-    # install additional dev libs
+  before_script:
+    # Cirrus image уже имеет GTK и CMake; добавляем dev-libs для plugins
     - apt-get update && apt-get install -y libjsoncpp-dev libsecret-1-dev
+  script:
+    - flutter pub get
     - flutter build linux --release --dart-define=ENV=production
   artifacts:
     paths:
