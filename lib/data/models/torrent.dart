@@ -11,8 +11,10 @@ class Torrent with _$Torrent {
     String? name,
     String? quality,
     int? seeders,
-    @JsonKey(name: 'size_gb') double? sizeGb,
+    int? size, // размер в байтах
   }) = _Torrent;
 
   factory Torrent.fromJson(Map<String, dynamic> json) => _$TorrentFromJson(json);
 }
+
+

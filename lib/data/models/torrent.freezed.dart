@@ -25,8 +25,7 @@ mixin _$Torrent {
   String? get name => throw _privateConstructorUsedError;
   String? get quality => throw _privateConstructorUsedError;
   int? get seeders => throw _privateConstructorUsedError;
-  @JsonKey(name: 'size_gb')
-  double? get sizeGb => throw _privateConstructorUsedError;
+  int? get size => throw _privateConstructorUsedError;
 
   /// Serializes this Torrent to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
@@ -48,7 +47,7 @@ abstract class $TorrentCopyWith<$Res> {
       String? name,
       String? quality,
       int? seeders,
-      @JsonKey(name: 'size_gb') double? sizeGb});
+      int? size});
 }
 
 /// @nodoc
@@ -71,7 +70,7 @@ class _$TorrentCopyWithImpl<$Res, $Val extends Torrent>
     Object? name = freezed,
     Object? quality = freezed,
     Object? seeders = freezed,
-    Object? sizeGb = freezed,
+    Object? size = freezed,
   }) {
     return _then(_value.copyWith(
       magnet: null == magnet
@@ -94,10 +93,10 @@ class _$TorrentCopyWithImpl<$Res, $Val extends Torrent>
           ? _value.seeders
           : seeders // ignore: cast_nullable_to_non_nullable
               as int?,
-      sizeGb: freezed == sizeGb
-          ? _value.sizeGb
-          : sizeGb // ignore: cast_nullable_to_non_nullable
-              as double?,
+      size: freezed == size
+          ? _value.size
+          : size // ignore: cast_nullable_to_non_nullable
+              as int?,
     ) as $Val);
   }
 }
@@ -115,7 +114,7 @@ abstract class _$$TorrentImplCopyWith<$Res> implements $TorrentCopyWith<$Res> {
       String? name,
       String? quality,
       int? seeders,
-      @JsonKey(name: 'size_gb') double? sizeGb});
+      int? size});
 }
 
 /// @nodoc
@@ -136,7 +135,7 @@ class __$$TorrentImplCopyWithImpl<$Res>
     Object? name = freezed,
     Object? quality = freezed,
     Object? seeders = freezed,
-    Object? sizeGb = freezed,
+    Object? size = freezed,
   }) {
     return _then(_$TorrentImpl(
       magnet: null == magnet
@@ -159,10 +158,10 @@ class __$$TorrentImplCopyWithImpl<$Res>
           ? _value.seeders
           : seeders // ignore: cast_nullable_to_non_nullable
               as int?,
-      sizeGb: freezed == sizeGb
-          ? _value.sizeGb
-          : sizeGb // ignore: cast_nullable_to_non_nullable
-              as double?,
+      size: freezed == size
+          ? _value.size
+          : size // ignore: cast_nullable_to_non_nullable
+              as int?,
     ));
   }
 }
@@ -176,7 +175,7 @@ class _$TorrentImpl implements _Torrent {
       this.name,
       this.quality,
       this.seeders,
-      @JsonKey(name: 'size_gb') this.sizeGb});
+      this.size});
 
   factory _$TorrentImpl.fromJson(Map<String, dynamic> json) =>
       _$$TorrentImplFromJson(json);
@@ -192,12 +191,11 @@ class _$TorrentImpl implements _Torrent {
   @override
   final int? seeders;
   @override
-  @JsonKey(name: 'size_gb')
-  final double? sizeGb;
+  final int? size;
 
   @override
   String toString() {
-    return 'Torrent(magnet: $magnet, title: $title, name: $name, quality: $quality, seeders: $seeders, sizeGb: $sizeGb)';
+    return 'Torrent(magnet: $magnet, title: $title, name: $name, quality: $quality, seeders: $seeders, size: $size)';
   }
 
   @override
@@ -210,13 +208,13 @@ class _$TorrentImpl implements _Torrent {
             (identical(other.name, name) || other.name == name) &&
             (identical(other.quality, quality) || other.quality == quality) &&
             (identical(other.seeders, seeders) || other.seeders == seeders) &&
-            (identical(other.sizeGb, sizeGb) || other.sizeGb == sizeGb));
+            (identical(other.size, size) || other.size == size));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
   @override
   int get hashCode =>
-      Object.hash(runtimeType, magnet, title, name, quality, seeders, sizeGb);
+      Object.hash(runtimeType, magnet, title, name, quality, seeders, size);
 
   /// Create a copy of Torrent
   /// with the given fields replaced by the non-null parameter values.
@@ -241,7 +239,7 @@ abstract class _Torrent implements Torrent {
       final String? name,
       final String? quality,
       final int? seeders,
-      @JsonKey(name: 'size_gb') final double? sizeGb}) = _$TorrentImpl;
+      final int? size}) = _$TorrentImpl;
 
   factory _Torrent.fromJson(Map<String, dynamic> json) = _$TorrentImpl.fromJson;
 
@@ -256,8 +254,7 @@ abstract class _Torrent implements Torrent {
   @override
   int? get seeders;
   @override
-  @JsonKey(name: 'size_gb')
-  double? get sizeGb;
+  int? get size;
 
   /// Create a copy of Torrent
   /// with the given fields replaced by the non-null parameter values.

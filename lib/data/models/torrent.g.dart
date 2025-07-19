@@ -13,7 +13,7 @@ _$TorrentImpl _$$TorrentImplFromJson(Map<String, dynamic> json) =>
       name: json['name'] as String?,
       quality: json['quality'] as String?,
       seeders: (json['seeders'] as num?)?.toInt(),
-      sizeGb: (json['size_gb'] as num?)?.toDouble(),
+      size: (json['size'] as num?)?.toInt(),
     );
 
 Map<String, dynamic> _$$TorrentImplToJson(_$TorrentImpl instance) =>
@@ -23,5 +23,5 @@ Map<String, dynamic> _$$TorrentImplToJson(_$TorrentImpl instance) =>
       'name': instance.name,
       'quality': instance.quality,
       'seeders': instance.seeders,
-      'size_gb': instance.sizeGb,
+      'size': instance.size,
     };

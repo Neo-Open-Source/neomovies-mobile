@@ -5,6 +5,7 @@ import '../../../data/models/torrent.dart';
 import '../../../data/services/torrent_service.dart';
 import '../../cubits/torrent/torrent_cubit.dart';
 import '../../cubits/torrent/torrent_state.dart';
+import '../torrent_file_selector/torrent_file_selector_screen.dart';
 
 class TorrentSelectorScreen extends StatefulWidget {
   final String imdbId;
@@ -338,7 +339,6 @@ class _TorrentSelectorScreenState extends State<TorrentSelectorScreen> {
     final title = torrent.title ?? torrent.name ?? 'Неизвестная раздача';
     final quality = torrent.quality;
     final seeders = torrent.seeders;
-    final sizeGb = torrent.sizeGb;
     final isSelected = _selectedMagnet == torrent.magnet;
 
     return Card(
@@ -406,7 +406,7 @@ class _TorrentSelectorScreenState extends State<TorrentSelectorScreen> {
                     ),
                     const SizedBox(width: 16),
                   ],
-                  if (sizeGb != null) ...[
+                  if (torrent.size != null) ...[
                     Icon(
                       Icons.storage,
                       size: 18,
@@ -414,7 +414,7 @@ class _TorrentSelectorScreenState extends State<TorrentSelectorScreen> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '${sizeGb.toStringAsFixed(1)} GB',
+                      _formatFileSize(torrent.size),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w500,
@@ -576,21 +576,66 @@ class _TorrentSelectorScreenState extends State<TorrentSelectorScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _copyToClipboard,
-                icon: Icon(_isCopied ? Icons.check : Icons.copy),
-                label: Text(_isCopied ? 'Скопировано!' : 'Копировать magnet-ссылку'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _copyToClipboard,
+                    icon: Icon(_isCopied ? Icons.check : Icons.copy, size: 20),
+                    label: Text(_isCopied ? 'Скопировано!' : 'Копировать'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _openFileSelector,
+                    icon: const Icon(Icons.download, size: 20),
+                    label: const Text('Скачать'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
     );
+  }
+
+  String _formatFileSize(int? sizeInBytes) {
+    if (sizeInBytes == null || sizeInBytes == 0) return 'Неизвестно';
+    
+    const int kb = 1024;
+    const int mb = kb * 1024;
+    const int gb = mb * 1024;
+    
+    if (sizeInBytes >= gb) {
+      return '${(sizeInBytes / gb).toStringAsFixed(1)} GB';
+    } else if (sizeInBytes >= mb) {
+      return '${(sizeInBytes / mb).toStringAsFixed(0)} MB';
+    } else if (sizeInBytes >= kb) {
+      return '${(sizeInBytes / kb).toStringAsFixed(0)} KB';
+    } else {
+      return '$sizeInBytes B';
+    }
+  }
+
+  void _openFileSelector() {
+    if (_selectedMagnet != null) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => TorrentFileSelectorScreen(
+            magnetLink: _selectedMagnet!,
+            torrentTitle: widget.title,
+          ),
+        ),
+      );
+    }
   }
 
   void _copyToClipboard() {

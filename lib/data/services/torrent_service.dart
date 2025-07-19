@@ -77,6 +77,25 @@ class TorrentService {
     return null;
   }
 
+  /// Форматировать размер из байтов в читаемый формат
+  String formatFileSize(int? sizeInBytes) {
+    if (sizeInBytes == null || sizeInBytes == 0) return 'Неизвестно';
+    
+    const int kb = 1024;
+    const int mb = kb * 1024;
+    const int gb = mb * 1024;
+    
+    if (sizeInBytes >= gb) {
+      return '${(sizeInBytes / gb).toStringAsFixed(1)} GB';
+    } else if (sizeInBytes >= mb) {
+      return '${(sizeInBytes / mb).toStringAsFixed(0)} MB';
+    } else if (sizeInBytes >= kb) {
+      return '${(sizeInBytes / kb).toStringAsFixed(0)} KB';
+    } else {
+      return '$sizeInBytes B';
+    }
+  }
+
   /// Группировать торренты по качеству
   Map<String, List<Torrent>> groupTorrentsByQuality(List<Torrent> torrents) {
     final groups = <String, List<Torrent>>{};
