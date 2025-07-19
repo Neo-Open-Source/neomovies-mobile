@@ -45,3 +45,20 @@ class MoviePreviewAdapter extends TypeAdapter<MoviePreview> {
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }
+
+// **************************************************************************
+// JsonSerializableGenerator
+// **************************************************************************
+
+MoviePreview _$MoviePreviewFromJson(Map<String, dynamic> json) => MoviePreview(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      posterPath: json['posterPath'] as String?,
+    );
+
+Map<String, dynamic> _$MoviePreviewToJson(MoviePreview instance) =>
+    <String, dynamic>{
+      'id': instance.id,
+      'title': instance.title,
+      'posterPath': instance.posterPath,
+    };

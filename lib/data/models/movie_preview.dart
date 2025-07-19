@@ -1,8 +1,10 @@
 import 'package:hive/hive.dart';
+import 'package:json_annotation/json_annotation.dart';
 
 part 'movie_preview.g.dart';
 
 @HiveType(typeId: 1) // Use a new typeId to avoid conflicts with Movie
+@JsonSerializable()
 class MoviePreview extends HiveObject {
   @HiveField(0)
   final String id;
@@ -18,4 +20,7 @@ class MoviePreview extends HiveObject {
     required this.title,
     this.posterPath,
   });
+
+  factory MoviePreview.fromJson(Map<String, dynamic> json) => _$MoviePreviewFromJson(json);
+  Map<String, dynamic> toJson() => _$MoviePreviewToJson(this);
 }

@@ -1,9 +1,11 @@
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:hive/hive.dart';
+import 'package:json_annotation/json_annotation.dart';
 
 part 'movie.g.dart';
 
 @HiveType(typeId: 0)
+@JsonSerializable()
 class Movie extends HiveObject {
   @HiveField(0)
   final String id;
@@ -86,6 +88,8 @@ class Movie extends HiveObject {
       mediaType: (json['media_type'] ?? (json['title'] != null ? 'movie' : 'tv')) as String,
     );
   }
+
+  Map<String, dynamic> toJson() => _$MovieToJson(this);
 
   String get fullPosterUrl {
     final baseUrl = dotenv.env['API_URL']!;

@@ -6,6 +6,7 @@ import 'package:neomovies_mobile/presentation/providers/favorites_provider.dart'
 import 'package:neomovies_mobile/presentation/providers/reactions_provider.dart';
 import 'package:neomovies_mobile/presentation/providers/movie_detail_provider.dart';
 import 'package:neomovies_mobile/presentation/screens/player/video_player_screen.dart';
+import 'package:neomovies_mobile/presentation/screens/torrent_selector/torrent_selector_screen.dart';
 import 'package:provider/provider.dart';
 
 class MovieDetailScreen extends StatefulWidget {
@@ -27,6 +28,28 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       Provider.of<MovieDetailProvider>(context, listen: false).loadMedia(int.parse(widget.movieId), widget.mediaType);
       Provider.of<ReactionsProvider>(context, listen: false).loadReactionsForMedia(widget.mediaType, widget.movieId);
     });
+  }
+
+  void _openTorrentSelector(BuildContext context, String? imdbId, String title) {
+    if (imdbId == null || imdbId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('IMDB ID не найден. Невозможно загрузить торренты.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => TorrentSelectorScreen(
+          imdbId: imdbId,
+          mediaType: widget.mediaType,
+          title: title,
+        ),
+      ),
+    );
   }
 
   void _openPlayer(BuildContext context, String? imdbId, String title) {
@@ -205,9 +228,9 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                             ).copyWith(
                               // Устанавливаем цвет для неактивного состояния
-                              backgroundColor: MaterialStateProperty.resolveWith<Color?>(
-                                (Set<MaterialState> states) {
-                                  if (states.contains(MaterialState.disabled)) {
+                              backgroundColor: WidgetStateProperty.resolveWith<Color?>(
+                                (Set<WidgetState> states) {
+                                  if (states.contains(WidgetState.disabled)) {
                                     return Colors.grey;
                                   }
                                   return Theme.of(context).colorScheme.primary;
@@ -259,6 +282,33 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                             backgroundColor: isFavorite ? Colors.red.withOpacity(0.1) : colorScheme.secondaryContainer,
                             foregroundColor: isFavorite ? Colors.red : colorScheme.onSecondaryContainer,
                           ),
+                        );
+                      },
+                    ),
+                    // Download button
+                    const SizedBox(width: 12),
+                    Consumer<MovieDetailProvider>(
+                      builder: (context, provider, child) {
+                        final imdbId = provider.imdbId;
+                        final isImdbLoading = provider.isImdbLoading;
+                        
+                        return IconButton(
+                          onPressed: (isImdbLoading || imdbId == null)
+                              ? null
+                              : () => _openTorrentSelector(context, imdbId, movie.title),
+                          icon: isImdbLoading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.download),
+                          iconSize: 28,
+                          style: IconButton.styleFrom(
+                            backgroundColor: colorScheme.primaryContainer,
+                            foregroundColor: colorScheme.onPrimaryContainer,
+                          ),
+                          tooltip: 'Скачать торрент',
                         );
                       },
                     ),
