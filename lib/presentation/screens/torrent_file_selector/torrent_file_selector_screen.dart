@@ -17,12 +17,13 @@ class TorrentFileSelectorScreen extends StatefulWidget {
 }
 
 class _TorrentFileSelectorScreenState extends State<TorrentFileSelectorScreen> {
-  TorrentMetadata? _metadata;
-  List<TorrentFileInfo> _files = [];
+  TorrentMetadataFull? _metadata;
+  List<FileInfo> _files = [];
   bool _isLoading = true;
   String? _error;
   bool _isDownloading = false;
   bool _selectAll = false;
+  MagnetBasicInfo? _basicInfo;
 
   @override
   void initState() {
@@ -37,17 +38,30 @@ class _TorrentFileSelectorScreenState extends State<TorrentFileSelectorScreen> {
     });
 
     try {
-      final metadata = await TorrentPlatformService.getTorrentMetadata(widget.magnetLink);
+      // Сначала получаем базовую информацию
+      _basicInfo = await TorrentPlatformService.parseMagnetBasicInfo(widget.magnetLink);
+      
+      // Затем пытаемся получить полные метаданные
+      final metadata = await TorrentPlatformService.fetchFullMetadata(widget.magnetLink);
+      
       setState(() {
         _metadata = metadata;
-        _files = metadata.files.map((file) => file.copyWith(selected: false)).toList();
+        _files = metadata.getAllFiles().map((file) => file.copyWith(selected: false)).toList();
         _isLoading = false;
       });
     } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
+      // Если не удалось получить полные метаданные, используем базовую информацию
+      if (_basicInfo != null) {
+        setState(() {
+          _error = 'Не удалось получить полные метаданные. Показана базовая информация.';
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -159,7 +173,7 @@ class _TorrentFileSelectorScreenState extends State<TorrentFileSelectorScreen> {
           ),
           
           // Download button
-          if (!_isLoading && _files.isNotEmpty) _buildDownloadButton(),
+          if (!_isLoading && _files.isNotEmpty && _metadata != null) _buildDownloadButton(),
         ],
       ),
     );
@@ -202,7 +216,15 @@ class _TorrentFileSelectorScreenState extends State<TorrentFileSelectorScreen> {
           if (_metadata != null) ...[
             const SizedBox(height: 8),
             Text(
-              'Общий размер: ${_formatFileSize(_metadata!.totalSize)} • Файлов: ${_metadata!.files.length}',
+              'Общий размер: ${_formatFileSize(_metadata!.totalSize)} • Файлов: ${_metadata!.fileStructure.totalFiles}',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ] else if (_basicInfo != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Инфо хэш: ${_basicInfo!.infoHash.substring(0, 8)}... • Трекеров: ${_basicInfo!.trackers.length}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -270,6 +292,56 @@ class _TorrentFileSelectorScreenState extends State<TorrentFileSelectorScreen> {
       );
     }
 
+    if (_files.isEmpty && _basicInfo != null) {
+      // Показываем базовую информацию о торренте
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.info_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Базовая информация о торренте',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Название: ${_basicInfo!.name}'),
+                      const SizedBox(height: 8),
+                      Text('Инфо хэш: ${_basicInfo!.infoHash}'),
+                      const SizedBox(height: 8),
+                      Text('Трекеров: ${_basicInfo!.trackers.length}'),
+                      if (_basicInfo!.trackers.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text('Основной трекер: ${_basicInfo!.trackers.first}'),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: _loadTorrentMetadata,
+                child: const Text('Получить полные метаданные'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
     if (_files.isEmpty) {
       return const Center(
         child: Text('Файлы не найдены'),
