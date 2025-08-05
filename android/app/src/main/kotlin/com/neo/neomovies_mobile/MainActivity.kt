@@ -16,7 +16,6 @@ class MainActivity : FlutterActivity() {
     }
 
     private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    private val torrentMetadataService = TorrentMetadataService()
     private val gson = Gson()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -43,7 +42,7 @@ class MainActivity : FlutterActivity() {
     private fun parseMagnetBasicInfo(magnetUri: String, result: MethodChannel.Result) {
         coroutineScope.launch {
             try {
-                val basicInfo = torrentMetadataService.parseMagnetBasicInfo(magnetUri)
+                val basicInfo = TorrentMetadataService.parseMagnetBasicInfo(magnetUri)
                 if (basicInfo != null) {
                     result.success(gson.toJson(basicInfo))
                 } else {
@@ -58,7 +57,7 @@ class MainActivity : FlutterActivity() {
     private fun fetchFullMetadata(magnetUri: String, result: MethodChannel.Result) {
         coroutineScope.launch {
             try {
-                val metadata = torrentMetadataService.fetchFullMetadata(magnetUri)
+                val metadata = TorrentMetadataService.fetchFullMetadata(magnetUri)
                 if (metadata != null) {
                     TorrentDisplayUtils.logTorrentStructure(metadata)
                     result.success(gson.toJson(metadata))
@@ -74,6 +73,6 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         super.onDestroy()
         coroutineScope.cancel()
-        torrentMetadataService.cleanup()
+        TorrentMetadataService.cleanup()
     }
 }

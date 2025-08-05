@@ -32,7 +32,9 @@ data class TorrentMetadata(
 data class FileStructure(
     val rootDirectory: DirectoryNode,
     val totalFiles: Int,
-    val filesByType: Map<String, Int> = emptyMap()
+    val totalSize: Long,
+    val filesByType: Map<String, Int> = emptyMap(),
+    val fileTypeStats: Map<String, Int> = emptyMap()
 )
 
 /**
@@ -59,5 +61,6 @@ data class FileInfo(
     val isVideo: Boolean = false,
     val isAudio: Boolean = false,
     val isImage: Boolean = false,
-    val isDocument: Boolean = false
+    val isDocument: Boolean = false,
+    val isArchive: Boolean = false
 )
