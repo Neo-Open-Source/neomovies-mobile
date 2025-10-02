@@ -1,0 +1,123 @@
+name: Build Torrent Engine
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'android/torrentengine/**'
+      - '.github/workflows/torrent-engine.yml'
+  pull_request:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'android/torrentengine/**'
+
+jobs:
+  build-torrent-engine:
+    name: Build Torrent Engine AAR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Create local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+      - name: Build Torrent Engine
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew :torrentengine:assembleRelease --no-daemon --stacktrace
+
+      - name: Get AAR info
+        id: aar_info
+        run: |
+          AAR_FILE=$(find android/torrentengine/build/outputs/aar -name "*.aar" | head -n 1)
+          AAR_SIZE=$(du -h "$AAR_FILE" | cut -f1)
+          AAR_NAME=$(basename "$AAR_FILE")
+          
+          echo "file=$AAR_FILE" >> $GITHUB_OUTPUT
+          echo "size=$AAR_SIZE" >> $GITHUB_OUTPUT
+          echo "name=$AAR_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload Torrent Engine AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: torrent-engine-aar
+          path: android/torrentengine/build/outputs/aar/*.aar
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          echo "## Torrent Engine Built Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**AAR File:** \`${{ steps.aar_info.outputs.name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Size:** ${{ steps.aar_info.outputs.size }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Path:** \`android/torrentengine/build/outputs/aar/\`" >> $GITHUB_STEP_SUMMARY
+
+  test-torrent-engine:
+    name: Test Torrent Engine
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Create local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+      - name: Run Unit Tests
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew :torrentengine:test --no-daemon
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: torrent-engine-test-results
+          path: android/torrentengine/build/test-results/
+          retention-days: 7
+        if: always()
