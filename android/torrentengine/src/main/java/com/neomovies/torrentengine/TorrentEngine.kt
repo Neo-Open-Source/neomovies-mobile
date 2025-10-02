@@ -16,13 +16,7 @@ import java.io.File
 
 /**
  * Main TorrentEngine class - the core of the torrent library
- * This is the main API that applications should use
- * 
- * Usage:
- * ```
- * val engine = TorrentEngine.getInstance(context)
- * engine.addTorrent(magnetUri, savePath)
- * ```
+ * This is the main API that applications should use.
  */
 class TorrentEngine private constructor(private val context: Context) {
     private val TAG = "TorrentEngine"
