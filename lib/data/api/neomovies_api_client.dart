@@ -7,6 +7,7 @@ import 'package:neomovies_mobile/data/models/movie.dart';
 import 'package:neomovies_mobile/data/models/reaction.dart';
 import 'package:neomovies_mobile/data/models/user.dart';
 import 'package:neomovies_mobile/data/models/torrent.dart';
+import 'package:neomovies_mobile/data/models/torrent/torrent_item.dart';
 import 'package:neomovies_mobile/data/models/player/player_response.dart';
 
 /// New API client for neomovies-api (Go-based backend)

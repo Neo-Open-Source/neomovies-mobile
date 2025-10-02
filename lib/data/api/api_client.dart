@@ -83,6 +83,26 @@ class ApiClient {
     return _neoClient.getMyReactions();
   }
 
+  // Get single user reaction for specific media
+  Future<UserReaction?> getMyReaction(String mediaType, String mediaId) async {
+    final reactions = await _neoClient.getMyReactions();
+    try {
+      return reactions.firstWhere(
+        (r) => r.mediaType == mediaType && r.mediaId == mediaId,
+      );
+    } catch (e) {
+      return null; // No reaction found
+    }
+  }
+
+  // ---- External IDs (IMDb) ----
+  Future<String?> getImdbId(String mediaId, String mediaType) async {
+    // This would need to be implemented in NeoMoviesApiClient
+    // For now, return null or implement a stub
+    // TODO: Add getExternalIds endpoint to backend
+    return null;
+  }
+
   // ---- Auth ----
   Future<void> register(String name, String email, String password) {
     return _neoClient.register(
