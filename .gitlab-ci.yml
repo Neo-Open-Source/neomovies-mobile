@@ -2,33 +2,20 @@ stages:
   - build
   - deploy
 
-variables:
-  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs='-Xmx1536m' -Dorg.gradle.parallel=true"
-  GRADLE_USER_HOME: "${CI_PROJECT_DIR}/.gradle"
-  PUB_CACHE: "${CI_PROJECT_DIR}/.pub-cache"
-
-cache:
-  key: ${CI_COMMIT_REF_SLUG}
-  paths:
-    - .gradle/
-    - .pub-cache/
-    - android/.gradle/
-    - build/
-
 build:apk:
   stage: build
-  image: ghcr.io/cirruslabs/flutter:stable
+  image: cirrusci/flutter:latest
   script:
-    - flutter pub get
-    - flutter build apk --release --no-shrink
+    - flutter build apk --release
   artifacts:
     paths:
       - build/app/outputs/flutter-apk/*.apk
     expire_in: 30 days
   rules:
-    - if: $CI_COMMIT_BRANCH =~ /^dev|main|feature\// 
     - if: $CI_COMMIT_TAG
-  allow_failure: false
+      when: always
+    - if: $CI_COMMIT_BRANCH =~ /^dev|main/
+      when: on_success
 
 deploy:release:
   stage: deploy
@@ -39,7 +26,6 @@ deploy:release:
     - apk add --no-cache curl jq
   script:
     - |
-      # Версия релиза
       VERSION="${CI_COMMIT_TAG:-v0.0.${CI_PIPELINE_ID}}"
       APK_FILE=$(ls build/app/outputs/flutter-apk/*.apk | head -n1)
       if [ -z "$APK_FILE" ]; then
@@ -47,27 +33,39 @@ deploy:release:
         exit 1
       fi
 
-      # Создаем описание релиза
-      DESCRIPTION="NeoMovies Mobile ${VERSION}
-      
+      DESCRIPTION=$(cat <<END_DESC
+NeoMovies Mobile ${VERSION}
+
 Commit: ${CI_COMMIT_SHORT_SHA}
 Branch: ${CI_COMMIT_BRANCH}
 Pipeline: [#${CI_PIPELINE_ID}](${CI_PIPELINE_URL})
 
-APK: \`$(basename $APK_FILE)\`"
+APK: \`$(basename $APK_FILE)\`
+END_DESC
+)
 
-      # Создаем релиз через GitLab API
+      RELEASE_PAYLOAD=$(cat <<EOF
+{
+  "name": "NeoMovies ${VERSION}",
+  "tag_name": "${VERSION}",
+  "description": "${DESCRIPTION}",
+  "ref": "${CI_COMMIT_SHA}"
+}
+EOF
+)
+
       curl -s --fail -X POST "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases" \
         --header "PRIVATE-TOKEN: ${CI_JOB_TOKEN}" \
         --header "Content-Type: application/json" \
-        --data "{\"name\":\"NeoMovies ${VERSION}\",\"tag_name\":\"${VERSION}\",\"description\":\"${DESCRIPTION}\",\"ref\":\"${CI_COMMIT_SHA}\"}" || \
+        --data "$RELEASE_PAYLOAD" || \
       curl -s -X PUT "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${VERSION}" \
         --header "PRIVATE-TOKEN: ${CI_JOB_TOKEN}" \
         --header "Content-Type: application/json" \
-        --data "{\"name\":\"NeoMovies ${VERSION}\",\"tag_name\":\"${VERSION}\",\"description\":\"${DESCRIPTION}\",\"ref\":\"${CI_COMMIT_SHA}\"}"
+        --data "$RELEASE_PAYLOAD"
 
-      echo "Release created: ${CI_PROJECT_URL}/-/releases/${VERSION}"
+      echo "Release created/updated: ${CI_PROJECT_URL}/-/releases/${VERSION}"
       echo "APK artifact: ${CI_JOB_URL}/artifacts/browse"
+
   artifacts:
     paths:
       - build/app/outputs/flutter-apk/*.apk
