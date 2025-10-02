@@ -189,7 +189,12 @@ class NeoMoviesApiClient {
     final response = await _client.get(uri);
 
     if (response.statusCode == 200) {
-      return Movie.fromJson(json.decode(response.body));
+      final apiResponse = json.decode(response.body);
+      // API returns: {"success": true, "data": {...}}
+      final movieData = (apiResponse is Map && apiResponse['data'] != null) 
+          ? apiResponse['data'] 
+          : apiResponse;
+      return Movie.fromJson(movieData);
     } else {
       throw Exception('Failed to load movie: ${response.statusCode}');
     }
@@ -225,7 +230,12 @@ class NeoMoviesApiClient {
     final response = await _client.get(uri);
 
     if (response.statusCode == 200) {
-      return Movie.fromJson(json.decode(response.body));
+      final apiResponse = json.decode(response.body);
+      // API returns: {"success": true, "data": {...}}
+      final tvData = (apiResponse is Map && apiResponse['data'] != null) 
+          ? apiResponse['data'] 
+          : apiResponse;
+      return Movie.fromJson(tvData);
     } else {
       throw Exception('Failed to load TV show: ${response.statusCode}');
     }
@@ -266,7 +276,11 @@ class NeoMoviesApiClient {
     final response = await _client.get(uri);
 
     if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
+      final apiResponse = json.decode(response.body);
+      // API returns: {"success": true, "data": [...]}
+      final List<dynamic> data = (apiResponse is Map && apiResponse['data'] != null)
+          ? (apiResponse['data'] is List ? apiResponse['data'] : [])
+          : (apiResponse is List ? apiResponse : []);
       return data.map((json) => Favorite.fromJson(json)).toList();
     } else {
       throw Exception('Failed to fetch favorites: ${response.body}');
@@ -274,23 +288,17 @@ class NeoMoviesApiClient {
   }
 
   /// Add movie/show to favorites
+  /// Backend automatically fetches title and poster_path from TMDB
   Future<void> addFavorite({
     required String mediaId,
     required String mediaType,
     required String title,
     required String posterPath,
   }) async {
-    final uri = Uri.parse('$apiUrl/favorites');
-    final response = await _client.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({
-        'mediaId': mediaId,
-        'mediaType': mediaType,
-        'title': title,
-        'posterPath': posterPath,
-      }),
-    );
+    // Backend route: POST /favorites/{id}?type={mediaType}
+    final uri = Uri.parse('$apiUrl/favorites/$mediaId')
+        .replace(queryParameters: {'type': mediaType});
+    final response = await _client.post(uri);
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception('Failed to add favorite: ${response.body}');
@@ -298,12 +306,34 @@ class NeoMoviesApiClient {
   }
 
   /// Remove movie/show from favorites
-  Future<void> removeFavorite(String mediaId) async {
-    final uri = Uri.parse('$apiUrl/favorites/$mediaId');
+  Future<void> removeFavorite(String mediaId, {String mediaType = 'movie'}) async {
+    // Backend route: DELETE /favorites/{id}?type={mediaType}
+    final uri = Uri.parse('$apiUrl/favorites/$mediaId')
+        .replace(queryParameters: {'type': mediaType});
     final response = await _client.delete(uri);
 
     if (response.statusCode != 200 && response.statusCode != 204) {
       throw Exception('Failed to remove favorite: ${response.body}');
+    }
+  }
+
+  /// Check if media is in favorites
+  Future<bool> checkIsFavorite(String mediaId, {String mediaType = 'movie'}) async {
+    // Backend route: GET /favorites/{id}/check?type={mediaType}
+    final uri = Uri.parse('$apiUrl/favorites/$mediaId/check')
+        .replace(queryParameters: {'type': mediaType});
+    final response = await _client.get(uri);
+
+    if (response.statusCode == 200) {
+      final apiResponse = json.decode(response.body);
+      // API returns: {"success": true, "data": {"isFavorite": true}}
+      if (apiResponse is Map && apiResponse['data'] != null) {
+        final data = apiResponse['data'];
+        return data['isFavorite'] ?? false;
+      }
+      return false;
+    } else {
+      throw Exception('Failed to check favorite status: ${response.body}');
     }
   }
 
@@ -351,7 +381,11 @@ class NeoMoviesApiClient {
     final response = await _client.get(uri);
 
     if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
+      final apiResponse = json.decode(response.body);
+      // API returns: {"success": true, "data": [...]}
+      final List<dynamic> data = (apiResponse is Map && apiResponse['data'] != null)
+          ? (apiResponse['data'] is List ? apiResponse['data'] : [])
+          : (apiResponse is List ? apiResponse : []);
       return data.map((json) => UserReaction.fromJson(json)).toList();
     } else {
       throw Exception('Failed to get my reactions: ${response.body}');
@@ -433,8 +467,18 @@ class NeoMoviesApiClient {
     if (response.statusCode == 200) {
       final decoded = json.decode(response.body);
       
+      // API returns: {"success": true, "data": {"page": 1, "results": [...], ...}}
       List<dynamic> results;
-      if (decoded is List) {
+      if (decoded is Map && decoded['success'] == true && decoded['data'] != null) {
+        final data = decoded['data'];
+        if (data is Map && data['results'] != null) {
+          results = data['results'];
+        } else if (data is List) {
+          results = data;
+        } else {
+          throw Exception('Unexpected data format in API response');
+        }
+      } else if (decoded is List) {
         results = decoded;
       } else if (decoded is Map && decoded['results'] != null) {
         results = decoded['results'];

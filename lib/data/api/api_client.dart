@@ -57,8 +57,12 @@ class ApiClient {
     );
   }
 
-  Future<void> removeFavorite(String mediaId) {
-    return _neoClient.removeFavorite(mediaId);
+  Future<void> removeFavorite(String mediaId, {String mediaType = 'movie'}) {
+    return _neoClient.removeFavorite(mediaId, mediaType: mediaType);
+  }
+
+  Future<bool> checkIsFavorite(String mediaId, {String mediaType = 'movie'}) {
+    return _neoClient.checkIsFavorite(mediaId, mediaType: mediaType);
   }
 
   // ---- Reactions ----
