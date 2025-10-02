@@ -1,7 +1,11 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:neomovies_mobile/data/models/player/video_source.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class WebPlayerWidget extends StatefulWidget {
   final VideoSource source;
@@ -17,14 +21,29 @@ class WebPlayerWidget extends StatefulWidget {
   State<WebPlayerWidget> createState() => _WebPlayerWidgetState();
 }
 
-class _WebPlayerWidgetState extends State<WebPlayerWidget> {
+class _WebPlayerWidgetState extends State<WebPlayerWidget>
+    with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
   late final WebViewController _controller;
   bool _isLoading = true;
   String? _error;
+  bool _isDisposed = false;
+  Timer? _retryTimer;
+  int _retryCount = 0;
+  static const int _maxRetries = 3;
+  static const Duration _retryDelay = Duration(seconds: 2);
+  
+  // Performance optimization flags
+  bool _hasInitialized = false;
+  String? _lastLoadedUrl;
+  
+  // Keep alive for better performance
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeWebView();
   }
 

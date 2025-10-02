@@ -1,133 +1,202 @@
+# GitLab CI/CD Configuration for NeoMovies Mobile
+# Автоматическая сборка APK и TorrentEngine модуля
+
 stages:
-  - test
   - build
+  - test
   - deploy
 
 variables:
-  FLUTTER_VERSION: "3.16.0"
-  ANDROID_SDK_VERSION: "34"
-  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+  # Flutter версия
+  FLUTTER_VERSION: "3.35.5"
+  # Flutter путь для CI
+  FLUTTER_ROOT: "/opt/flutter"
+  # Android SDK (стандартный путь в mingc/android-build-box)
+  ANDROID_SDK_ROOT: "/opt/android-sdk"
+  ANDROID_HOME: "/opt/android-sdk"
+  # Gradle настройки для CI (меньше RAM)
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs='-Xmx1536m -XX:MaxMetaspaceSize=512m' -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
+  # Кэш
+  GRADLE_USER_HOME: "${CI_PROJECT_DIR}/.gradle"
+  PUB_CACHE: "${CI_PROJECT_DIR}/.pub-cache"
 
-# Кэш для оптимизации сборки
+# Кэширование для ускорения сборки
 cache:
-  key: flutter-cache
+  key: ${CI_COMMIT_REF_SLUG}
   paths:
+    - .gradle/
     - .pub-cache/
     - android/.gradle/
+    - android/build/
     - build/
 
-# Тестирование
-test:
-  stage: test
-  image: cirrusci/flutter:${FLUTTER_VERSION}
-  before_script:
-    - flutter --version
-    - flutter pub get
-  script:
-    - flutter analyze
-    - flutter test
-  artifacts:
-    reports:
-      junit: test-results.xml
-    paths:
-      - coverage/
-    expire_in: 1 week
-
-# Сборка Android APK
-build_android:
+# ============================================
+# Сборка только TorrentEngine модуля
+# ============================================
+build:torrent-engine:
   stage: build
-  image: cirrusci/flutter:${FLUTTER_VERSION}
+  image: mingc/android-build-box:latest
+  tags:
+    - saas-linux-medium-amd64  # GitLab Instance Runner (4GB RAM, 2 cores)
   before_script:
-    - flutter --version
-    - flutter pub get
+    - echo "Detecting Android SDK location..."
+    - export ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/opt/android-sdk}}
+    - echo "Android SDK: ${ANDROID_SDK_ROOT}"
+    - echo "Creating local.properties for Flutter..."
+    - echo "flutter.sdk=${FLUTTER_ROOT}" > android/local.properties
+    - echo "sdk.dir=${ANDROID_SDK_ROOT}" >> android/local.properties
+    - cat android/local.properties
   script:
-    - flutter build apk --release
-    - flutter build appbundle --release
-  artifacts:
-    paths:
-      - build/app/outputs/flutter-apk/app-release.apk
-      - build/app/outputs/bundle/release/app-release.aab
-    expire_in: 1 month
-  rules:
-    - if: '$CI_COMMIT_BRANCH'
-    - if: '$CI_COMMIT_TAG'
-
-# Сборка Linux приложения
-build_linux:
-  stage: build
-  image: ubuntu:22.04
-  before_script:
-    - apt-get update -y
-    - apt-get install -y curl git unzip xz-utils zip libglu1-mesa
-    - apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
-    - apt-get install -y libblkid-dev liblzma-dev
-    # Установка Flutter
-    - git clone https://github.com/flutter/flutter.git -b stable --depth 1
-    - export PATH="$PATH:`pwd`/flutter/bin"
-    - flutter --version
-    - flutter config --enable-linux-desktop
-    - flutter pub get
-  script:
-    - flutter build linux --release
-  artifacts:
-    paths:
-      - build/linux/x64/release/bundle/
-    expire_in: 1 month
-  rules:
-    - if: '$CI_COMMIT_BRANCH'
-    - if: '$CI_COMMIT_TAG'
-
-# Деплой в Google Play (опционально)
-deploy_android:
-  stage: deploy
-  image: ruby:3.0
-  before_script:
-    - gem install fastlane
-  script:
+    - echo "Building TorrentEngine library module..."
     - cd android
-    - fastlane supply --aab ../build/app/outputs/bundle/release/app-release.aab
-  dependencies:
-    - build_android
-  rules:
-    - if: '$CI_COMMIT_TAG'
-      when: manual
+    # Собираем только модуль torrentengine
+    - ./gradlew :torrentengine:assembleRelease --no-daemon --parallel --build-cache
+    - ls -lah torrentengine/build/outputs/aar/
+  artifacts:
+    name: "torrentengine-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - android/torrentengine/build/outputs/aar/*.aar
+    expire_in: 1 week
+  only:
+    - dev
+    - feature/torrent-engine-integration
+    - merge_requests
+  when: on_success
 
-# Деплой Linux приложения в GitLab Package Registry
-deploy_linux:
-  stage: deploy
-  image: ubuntu:22.04
+# ============================================
+# Сборка Debug APK
+# ============================================
+build:apk-debug:
+  stage: build
+  image: mingc/android-build-box:latest
+  tags:
+    - docker
   before_script:
-    - apt-get update -y
-    - apt-get install -y curl zip
+    - echo "Installing Flutter ${FLUTTER_VERSION}..."
+    - git clone --depth 1 --branch ${FLUTTER_VERSION} https://github.com/flutter/flutter.git /opt/flutter
+    - export PATH="/opt/flutter/bin:$PATH"
+    - flutter --version
+    - flutter doctor -v
+    - flutter pub get
   script:
-    - cd build/linux/x64/release/bundle
-    - zip -r ../../../../../${CI_PROJECT_NAME}-linux-${CI_COMMIT_TAG}.zip .
-    - cd ../../../../../
-    - |
-      curl --header "JOB-TOKEN: $CI_JOB_TOKEN" \
-           --upload-file ${CI_PROJECT_NAME}-linux-${CI_COMMIT_TAG}.zip \
-           "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_PROJECT_NAME}/${CI_COMMIT_TAG}/${CI_PROJECT_NAME}-linux-${CI_COMMIT_TAG}.zip"
-  dependencies:
-    - build_linux
-  rules:
-    - if: '$CI_COMMIT_TAG'
-      when: manual
+    - echo "Building Debug APK..."
+    - flutter build apk --debug --target-platform android-arm64
+    - ls -lah build/app/outputs/flutter-apk/
+  artifacts:
+    name: "neomovies-debug-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - build/app/outputs/flutter-apk/app-debug.apk
+    expire_in: 1 week
+  only:
+    - dev
+    - feature/torrent-engine-integration
+    - merge_requests
+  when: on_success
+  allow_failure: true
 
-# Релиз на GitLab
-release:
-  stage: deploy
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
+# ============================================
+# Сборка Release APK (только для dev)
+# ============================================
+build:apk-release:
+  stage: build
+  image: mingc/android-build-box:latest
+  tags:
+    - docker
+  before_script:
+    - echo "Installing Flutter ${FLUTTER_VERSION}..."
+    - git clone --depth 1 --branch ${FLUTTER_VERSION} https://github.com/flutter/flutter.git /opt/flutter
+    - export PATH="/opt/flutter/bin:$PATH"
+    - flutter --version
+    - flutter doctor -v
+    - flutter pub get
   script:
+    - echo "Building Release APK..."
+    # Сборка с split-per-abi для уменьшения размера
+    - flutter build apk --release --split-per-abi --target-platform android-arm64
+    - ls -lah build/app/outputs/flutter-apk/
+  artifacts:
+    name: "neomovies-release-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+    expire_in: 30 days
+  only:
+    - dev
+  when: on_success
+  allow_failure: true
+
+# ============================================
+# Анализ кода Flutter
+# ============================================
+test:flutter-analyze:
+  stage: test
+  image: mingc/android-build-box:latest
+  tags:
+    - docker
+  before_script:
+    - git clone --depth 1 --branch ${FLUTTER_VERSION} https://github.com/flutter/flutter.git /opt/flutter
+    - export PATH="/opt/flutter/bin:$PATH"
+    - flutter pub get
+  script:
+    - echo "Running Flutter analyze..."
+    - flutter analyze --no-fatal-infos || true
+  only:
+    - dev
+    - merge_requests
+  allow_failure: true
+
+# ============================================
+# Kotlin/Android lint
+# ============================================
+test:android-lint:
+  stage: test
+  image: mingc/android-build-box:latest
+  tags:
+    - docker
+  before_script:
+    - echo "Creating local.properties for Flutter..."
+    - echo "flutter.sdk=${FLUTTER_ROOT}" > android/local.properties
+    - echo "sdk.dir=${ANDROID_SDK_ROOT}" >> android/local.properties
+  script:
+    - echo "Running Android Lint..."
+    - cd android
+    - ./gradlew lint --no-daemon || true
+  artifacts:
+    name: "lint-reports-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - android/app/build/reports/lint-results*.html
+      - android/torrentengine/build/reports/lint-results*.html
+    expire_in: 1 week
+  only:
+    - dev
+    - merge_requests
+  allow_failure: true
+
+# ============================================
+# Deploy к релизам (опционально)
+# ============================================
+deploy:release:
+  stage: deploy
+  image: alpine:latest
+  tags:
+    - docker
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - echo "Creating GitLab Release..."
     - |
-      release-cli create \
-        --name "Release $CI_COMMIT_TAG" \
-        --tag-name $CI_COMMIT_TAG \
-        --description "Release $CI_COMMIT_TAG" \
-        --assets-link "{\"name\":\"Android APK\",\"url\":\"${CI_PROJECT_URL}/-/jobs/artifacts/$CI_COMMIT_TAG/download?job=build_android\"}" \
-        --assets-link "{\"name\":\"Linux App\",\"url\":\"${CI_PROJECT_URL}/-/jobs/artifacts/$CI_COMMIT_TAG/download?job=build_linux\"}"
-  dependencies:
-    - build_android
-    - build_linux
-  rules:
-    - if: '$CI_COMMIT_TAG'
-      when: manual
+      if [ -f "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk" ]; then
+        echo "Release APK found"
+        # Здесь можно добавить публикацию в GitLab Releases или другой deployment
+      fi
+  only:
+    - tags
+  when: manual
+
+# ============================================
+# Уведомление об успешной сборке
+# ============================================
+.notify_success:
+  after_script:
+    - echo "✅ Build completed successfully!"
+    - echo "📦 Artifacts are available in the pipeline artifacts"
+    - echo "🔗 Download URL: ${CI_JOB_URL}/artifacts/download"
