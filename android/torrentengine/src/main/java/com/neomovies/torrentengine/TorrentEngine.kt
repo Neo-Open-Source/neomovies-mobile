@@ -11,6 +11,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.libtorrent4j.*
 import org.libtorrent4j.alerts.*
+import org.libtorrent4j.TorrentInfo as LibTorrentInfo
 import java.io.File
 
 /**
@@ -41,12 +42,16 @@ class TorrentEngine private constructor(private val context: Context) {
     private val torrentHandles = mutableMapOf<String, TorrentHandle>()
     
     // Settings
-    private val settings = SettingsPack().apply {
-        setInteger(SettingsPack.Key.ALERT_MASK.value(), Alert.Category.ALL.swig())
-        setBoolean(SettingsPack.Key.ENABLE_DHT.value(), true)
-        setBoolean(SettingsPack.Key.ENABLE_LSD.value(), true)
-        setString(SettingsPack.Key.USER_AGENT.value(), "NeoMovies/1.0 libtorrent4j/2.1.0")
+    private val settingsPack = SettingsPack().apply {
+        // Enable DHT for magnet links
+        setEnableDht(true)
+        // Enable Local Service Discovery
+        setEnableLsd(true)
+        // User agent
+        setString(org.libtorrent4j.swig.settings_pack.string_types.user_agent.swigValue(), "NeoMovies/1.0 libtorrent4j/2.1.0")
     }
+    
+    private val sessionParams = SessionParams(settingsPack)
 
     init {
         startSession()
@@ -60,7 +65,7 @@ class TorrentEngine private constructor(private val context: Context) {
     private fun startSession() {
         try {
             session = SessionManager()
-            session?.start(settings)
+            session?.start(sessionParams)
             isSessionStarted = true
             Log.d(TAG, "LibTorrent session started")
         } catch (e: Exception) {
@@ -93,21 +98,21 @@ class TorrentEngine private constructor(private val context: Context) {
      * Start alert listener for torrent events
      */
     private fun startAlertListener() {
-        scope.launch {
-            while (isActive && isSessionStarted) {
-                try {
-                    session?.let { sess ->
-                        val alerts = sess.popAlerts()
-                        for (alert in alerts) {
-                            handleAlert(alert)
-                        }
-                    }
-                    delay(1000) // Check every second
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error in alert listener", e)
-                }
+        session?.addListener(object : AlertListener {
+            override fun types(): IntArray {
+                return intArrayOf(
+                    AlertType.METADATA_RECEIVED.swig(),
+                    AlertType.TORRENT_FINISHED.swig(),
+                    AlertType.TORRENT_ERROR.swig(),
+                    AlertType.STATE_CHANGED.swig(),
+                    AlertType.TORRENT_CHECKED.swig()
+                )
             }
-        }
+            
+            override fun alert(alert: Alert<*>) {
+                handleAlert(alert)
+            }
+        })
     }
 
     /**
@@ -191,7 +196,8 @@ class TorrentEngine private constructor(private val context: Context) {
         scope.launch {
             val handle = alert.handle()
             val infoHash = handle.infoHash().toHex()
-            val error = alert.error().message()
+            // message is a property in Kotlin
+            val error = alert.error().message
             
             Log.e(TAG, "Torrent error: $infoHash - $error")
             torrentDao.setTorrentError(infoHash, error)
@@ -205,7 +211,8 @@ class TorrentEngine private constructor(private val context: Context) {
         scope.launch {
             val handle = alert.handle()
             val infoHash = handle.infoHash().toHex()
-            val state = when (alert.state()) {
+            val status = handle.status()
+            val state = when (status.state()) {
                 TorrentStatus.State.CHECKING_FILES -> TorrentState.CHECKING
                 TorrentStatus.State.DOWNLOADING_METADATA -> TorrentState.METADATA_DOWNLOADING
                 TorrentStatus.State.DOWNLOADING -> TorrentState.DOWNLOADING
@@ -251,15 +258,11 @@ class TorrentEngine private constructor(private val context: Context) {
     ): String {
         return withContext(Dispatchers.IO) {
             try {
-                // Parse magnet URI
-                val error = ErrorCode()
-                val params = SessionHandle.parseMagnetUri(magnetUri, error)
+                // Parse magnet URI using new API
+                val params = AddTorrentParams.parseMagnetUri(magnetUri)
                 
-                if (error.value() != 0) {
-                    throw Exception("Invalid magnet URI: ${error.message()}")
-                }
-                
-                val infoHash = params.infoHash().toHex()
+                // Get info hash from parsed params - best is a property
+                val infoHash = params.infoHashes.best.toHex()
                 
                 // Check if already exists
                 val existing = existingTorrent ?: torrentDao.getTorrent(infoHash)
@@ -268,22 +271,16 @@ class TorrentEngine private constructor(private val context: Context) {
                     return@withContext infoHash
                 }
                 
-                // Set save path
+                // Set save path and apply to params
                 val saveDir = File(savePath)
                 if (!saveDir.exists()) {
                     saveDir.mkdirs()
                 }
-                params.savePath(saveDir.absolutePath)
+                params.swig().setSave_path(saveDir.absolutePath)
                 
-                // Add to session
-                val handle = session?.swig()?.addTorrent(params, error)
-                    ?: throw Exception("Session not initialized")
-                
-                if (error.value() != 0) {
-                    throw Exception("Failed to add torrent: ${error.message()}")
-                }
-                
-                torrentHandles[infoHash] = TorrentHandle(handle)
+                // Add to session using async API
+                // Handle will be received asynchronously via ADD_TORRENT alert
+                session?.swig()?.async_add_torrent(params.swig()) ?: throw Exception("Session not initialized")
                 
                 // Save to database
                 val torrentInfo = TorrentInfo(
@@ -334,9 +331,11 @@ class TorrentEngine private constructor(private val context: Context) {
                 Log.d(TAG, "Torrent paused: $infoHash")
                 
                 // Stop service if no active torrents
-                if (torrentDao.getActiveTorrents().isEmpty()) {
+                val activeTorrents = torrentDao.getActiveTorrents()
+                if (activeTorrents.isEmpty()) {
                     stopService()
                 }
+                Unit // Explicitly return Unit
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to pause torrent", e)
             }
@@ -372,9 +371,11 @@ class TorrentEngine private constructor(private val context: Context) {
                 Log.d(TAG, "Torrent removed: $infoHash")
                 
                 // Stop service if no active torrents
-                if (torrentDao.getActiveTorrents().isEmpty()) {
+                val activeTorrents = torrentDao.getActiveTorrents()
+                if (activeTorrents.isEmpty()) {
                     stopService()
                 }
+                Unit // Explicitly return Unit
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to remove torrent", e)
             }
@@ -393,7 +394,15 @@ class TorrentEngine private constructor(private val context: Context) {
         withContext(Dispatchers.IO) {
             try {
                 val handle = torrentHandles[infoHash] ?: return@withContext
-                handle.filePriority(fileIndex, Priority.getValue(priority.value))
+                // Convert FilePriority to LibTorrent Priority
+                val libPriority = when (priority) {
+                    FilePriority.DONT_DOWNLOAD -> Priority.IGNORE
+                    FilePriority.LOW -> Priority.LOW
+                    FilePriority.NORMAL -> Priority.DEFAULT
+                    FilePriority.HIGH -> Priority.TOP_PRIORITY
+                    else -> Priority.DEFAULT // Default
+                }
+                handle.filePriority(fileIndex, libPriority)
                 
                 // Update database
                 val torrent = torrentDao.getTorrent(infoHash) ?: return@withContext
@@ -418,7 +427,14 @@ class TorrentEngine private constructor(private val context: Context) {
                 val handle = torrentHandles[infoHash] ?: return@withContext
                 
                 priorities.forEach { (fileIndex, priority) ->
-                    handle.filePriority(fileIndex, Priority.getValue(priority.value))
+                    val libPriority = when (priority) {
+                        FilePriority.DONT_DOWNLOAD -> Priority.IGNORE
+                        FilePriority.LOW -> Priority.LOW
+                        FilePriority.NORMAL -> Priority.DEFAULT
+                        FilePriority.HIGH -> Priority.TOP_PRIORITY
+                        else -> Priority.DEFAULT // Default
+                    }
+                    handle.filePriority(fileIndex, libPriority)
                 }
                 
                 // Update database

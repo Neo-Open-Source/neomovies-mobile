@@ -62,6 +62,7 @@ dependencies {
     implementation("com.google.code.gson:gson:2.11.0")
 
     // LibTorrent4j - Java bindings for libtorrent
+    // Using main package which includes native libraries
     implementation("org.libtorrent4j:libtorrent4j:2.1.0-28")
     implementation("org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-28")
     implementation("org.libtorrent4j:libtorrent4j-android-arm:2.1.0-28")
