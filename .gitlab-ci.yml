@@ -26,10 +26,12 @@ build:torrent-engine:
   artifacts:
     paths:
       - android/torrentengine/build/outputs/aar/*.aar
-    expire_in: 1 week
+    expire_in: 30 days
   rules:
     - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_BRANCH =~ /^feature\//
+    - if: $CI_COMMIT_TAG
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 build:apk-debug:
@@ -57,9 +59,14 @@ build:apk-release:
   artifacts:
     paths:
       - build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+      - build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+      - build/app/outputs/flutter-apk/app-x86_64-release.apk
     expire_in: 30 days
   rules:
     - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH =~ /^feature\//
+    - if: $CI_COMMIT_TAG
   allow_failure: true
 
 test:flutter-analyze:
@@ -94,13 +101,101 @@ test:android-lint:
 deploy:release:
   stage: deploy
   image: alpine:latest
+  needs:
+    - build:apk-release
+    - build:torrent-engine
   before_script:
-    - apk add --no-cache curl
+    - apk add --no-cache curl jq
   script:
     - |
-      if [ -f "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk" ]; then
-        echo "✅ Release APK ready for deployment"
+      # Определяем версию релиза
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        VERSION="$CI_COMMIT_TAG"
+      else
+        # Автоматическая версия из коммита
+        VERSION="v0.0.${CI_PIPELINE_ID}"
       fi
+      
+      echo "📦 Creating GitLab Release: $VERSION"
+      echo "📝 Commit: ${CI_COMMIT_SHORT_SHA}"
+      echo "🔗 Branch: ${CI_COMMIT_BRANCH}"
+      
+      # Проверяем наличие APK файлов
+      APK_ARM64="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+      APK_ARM32="build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk"
+      APK_X86="build/app/outputs/flutter-apk/app-x86_64-release.apk"
+      AAR_TORRENT="android/torrentengine/build/outputs/aar/torrentengine-release.aar"
+      
+      # Создаем описание релиза
+      RELEASE_DESCRIPTION="## NeoMovies Mobile ${VERSION}
+      
+      **Build Info:**
+      - Commit: \`${CI_COMMIT_SHORT_SHA}\`
+      - Branch: \`${CI_COMMIT_BRANCH}\`
+      - Pipeline: [#${CI_PIPELINE_ID}](${CI_PIPELINE_URL})
+      
+      **Downloads:**
+      "
+      
+      # Подсчитываем файлы
+      FILE_COUNT=0
+      [ -f "$APK_ARM64" ] && FILE_COUNT=$((FILE_COUNT+1)) && RELEASE_DESCRIPTION="${RELEASE_DESCRIPTION}\n- ARM64 APK: \`app-arm64-v8a-release.apk\`"
+      [ -f "$APK_ARM32" ] && FILE_COUNT=$((FILE_COUNT+1)) && RELEASE_DESCRIPTION="${RELEASE_DESCRIPTION}\n- ARM32 APK: \`app-armeabi-v7a-release.apk\`"
+      [ -f "$APK_X86" ] && FILE_COUNT=$((FILE_COUNT+1)) && RELEASE_DESCRIPTION="${RELEASE_DESCRIPTION}\n- x86_64 APK: \`app-x86_64-release.apk\`"
+      [ -f "$AAR_TORRENT" ] && FILE_COUNT=$((FILE_COUNT+1)) && RELEASE_DESCRIPTION="${RELEASE_DESCRIPTION}\n- TorrentEngine Library: \`torrentengine-release.aar\`"
+      
+      if [ $FILE_COUNT -eq 0 ]; then
+        echo "❌ No release artifacts found!"
+        exit 1
+      fi
+      
+      echo "✅ Found $FILE_COUNT artifact(s) to release"
+      
+      # Создаем релиз через GitLab API
+      RELEASE_PAYLOAD=$(cat <<EOF
+      {
+        "name": "NeoMovies ${VERSION}",
+        "tag_name": "${VERSION}",
+        "description": "${RELEASE_DESCRIPTION}",
+        "ref": "${CI_COMMIT_SHA}",
+        "assets": {
+          "links": []
+        }
+      }
+      EOF
+      )
+      
+      echo "🚀 Creating release via GitLab API..."
+      
+      RESPONSE=$(curl --fail-with-body -s -X POST \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases" \
+        --header "PRIVATE-TOKEN: ${CI_JOB_TOKEN}" \
+        --header "Content-Type: application/json" \
+        --data "${RELEASE_PAYLOAD}" || echo "FAILED")
+      
+      if [ "$RESPONSE" = "FAILED" ]; then
+        echo "⚠️  Release API call failed, trying alternative method..."
+        # Если релиз уже существует, пробуем обновить
+        curl -s -X PUT \
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${VERSION}" \
+          --header "PRIVATE-TOKEN: ${CI_JOB_TOKEN}" \
+          --header "Content-Type: application/json" \
+          --data "${RELEASE_PAYLOAD}"
+      fi
+      
+      echo ""
+      echo "✅ Release created successfully!"
+      echo "🔗 View release: ${CI_PROJECT_URL}/-/releases/${VERSION}"
+      echo "📦 Pipeline artifacts: ${CI_JOB_URL}/artifacts/browse"
+  artifacts:
+    paths:
+      - build/app/outputs/flutter-apk/*.apk
+      - android/torrentengine/build/outputs/aar/*.aar
+    expire_in: 90 days
   rules:
     - if: $CI_COMMIT_TAG
-  when: manual
+      when: always
+    - if: $CI_COMMIT_BRANCH == "dev"
+      when: on_success
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: on_success
