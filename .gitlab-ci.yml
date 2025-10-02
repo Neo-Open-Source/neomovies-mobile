@@ -9,6 +9,8 @@ stages:
 variables:
   # Flutter версия
   FLUTTER_VERSION: "3.35.5"
+  # Flutter путь для CI
+  FLUTTER_ROOT: "/opt/flutter"
   # Android SDK
   ANDROID_SDK_ROOT: "/opt/android-sdk"
   # Gradle настройки для CI (меньше RAM)
