@@ -10,7 +10,7 @@ class ReactionsRepository {
     return await _apiClient.getReactionCounts(mediaType, mediaId);
   }
 
-  Future<UserReaction> getMyReaction(String mediaType,String mediaId) async {
+  Future<UserReaction?> getMyReaction(String mediaType,String mediaId) async {
     return await _apiClient.getMyReaction(mediaType, mediaId);
   }
 

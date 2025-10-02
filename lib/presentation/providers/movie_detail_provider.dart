@@ -42,7 +42,7 @@ class MovieDetailProvider with ChangeNotifier {
       notifyListeners();
 
       if (_movie != null) {
-        _imdbId = await _apiClient.getImdbId(mediaId, mediaType);
+        _imdbId = await _apiClient.getImdbId(mediaId.toString(), mediaType);
       }
     } catch (e) {
       _error = e.toString();

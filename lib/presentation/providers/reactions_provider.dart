@@ -48,7 +48,7 @@ class ReactionsProvider with ChangeNotifier {
 
       if (_authProvider.isAuthenticated) {
         final userReactionResult = await _repository.getMyReaction(mediaType, mediaId);
-        _userReaction = userReactionResult.reactionType;
+        _userReaction = userReactionResult?.reactionType;
       } else {
         _userReaction = null;
       }
