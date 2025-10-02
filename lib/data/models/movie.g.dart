@@ -81,6 +81,7 @@ Movie _$MovieFromJson(Map<String, dynamic> json) => Movie(
       id: json['id'] as String,
       title: json['title'] as String,
       posterPath: json['posterPath'] as String?,
+      backdropPath: json['backdropPath'] as String?,
       overview: json['overview'] as String?,
       releaseDate: json['releaseDate'] == null
           ? null
@@ -100,6 +101,7 @@ Map<String, dynamic> _$MovieToJson(Movie instance) => <String, dynamic>{
       'id': instance.id,
       'title': instance.title,
       'posterPath': instance.posterPath,
+      'backdropPath': instance.backdropPath,
       'overview': instance.overview,
       'releaseDate': instance.releaseDate?.toIso8601String(),
       'genres': instance.genres,

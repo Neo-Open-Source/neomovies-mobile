@@ -33,21 +33,32 @@ class MovieDetailProvider with ChangeNotifier {
     notifyListeners();
 
     try {
+      // Load movie/TV details
       if (mediaType == 'movie') {
         _movie = await _movieRepository.getMovieById(mediaId.toString());
       } else {
         _movie = await _movieRepository.getTvById(mediaId.toString());
       }
+      
       _isLoading = false;
       notifyListeners();
 
+      // Try to load IMDb ID (non-blocking)
       if (_movie != null) {
-        _imdbId = await _apiClient.getImdbId(mediaId.toString(), mediaType);
+        try {
+          _imdbId = await _apiClient.getImdbId(mediaId.toString(), mediaType);
+        } catch (e) {
+          // IMDb ID loading failed, but don't fail the whole screen
+          print('Failed to load IMDb ID: $e');
+          _imdbId = null;
+        }
       }
     } catch (e) {
+      print('Error loading media: $e');
       _error = e.toString();
-    } finally {
       _isLoading = false;
+      notifyListeners();
+    } finally {
       _isImdbLoading = false;
       notifyListeners();
     }

@@ -31,11 +31,12 @@ class Favorite {
   }
 
   String get fullPosterUrl {
-    final baseUrl = dotenv.env['API_URL']!;
     if (posterPath.isEmpty) {
-      return '$baseUrl/images/w500/placeholder.jpg';
+      return 'https://via.placeholder.com/500x750.png?text=No+Poster';
     }
+    // TMDB CDN base URL
+    const tmdbBaseUrl = 'https://image.tmdb.org/t/p';
     final cleanPath = posterPath.startsWith('/') ? posterPath.substring(1) : posterPath;
-    return '$baseUrl/images/w500/$cleanPath';
+    return '$tmdbBaseUrl/w500/$cleanPath';
   }
 }

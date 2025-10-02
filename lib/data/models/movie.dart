@@ -16,6 +16,8 @@ class Movie extends HiveObject {
   @HiveField(2)
   final String? posterPath;
 
+  final String? backdropPath;
+
   @HiveField(3)
   final String? overview;
 
@@ -51,6 +53,7 @@ class Movie extends HiveObject {
     required this.id,
     required this.title,
     this.posterPath,
+    this.backdropPath,
     this.overview,
     this.releaseDate,
     this.genres,
@@ -68,6 +71,7 @@ class Movie extends HiveObject {
       id: (json['id'] as num).toString(), // Ensure id is a string
       title: (json['title'] ?? json['name'] ?? '') as String,
       posterPath: json['poster_path'] as String?,
+      backdropPath: json['backdrop_path'] as String?,
       overview: json['overview'] as String?,
       releaseDate: json['release_date'] != null && json['release_date'].isNotEmpty
           ? DateTime.tryParse(json['release_date'] as String)
@@ -92,13 +96,24 @@ class Movie extends HiveObject {
   Map<String, dynamic> toJson() => _$MovieToJson(this);
 
   String get fullPosterUrl {
-    final baseUrl = dotenv.env['API_URL']!;
     if (posterPath == null || posterPath!.isEmpty) {
-      // Use the placeholder from our own backend
-      return '$baseUrl/images/w500/placeholder.jpg';
+      // Use a generic placeholder
+      return 'https://via.placeholder.com/500x750.png?text=No+Poster';
     }
-    // Null check is already performed above, so we can use `!`
+    // TMDB CDN base URL
+    const tmdbBaseUrl = 'https://image.tmdb.org/t/p';
     final cleanPath = posterPath!.startsWith('/') ? posterPath!.substring(1) : posterPath!;
-    return '$baseUrl/images/w500/$cleanPath';
+    return '$tmdbBaseUrl/w500/$cleanPath';
+  }
+
+  String get fullBackdropUrl {
+    if (backdropPath == null || backdropPath!.isEmpty) {
+      // Use a generic placeholder
+      return 'https://via.placeholder.com/1280x720.png?text=No+Backdrop';
+    }
+    // TMDB CDN base URL
+    const tmdbBaseUrl = 'https://image.tmdb.org/t/p';
+    final cleanPath = backdropPath!.startsWith('/') ? backdropPath!.substring(1) : backdropPath!;
+    return '$tmdbBaseUrl/w780/$cleanPath';
   }
 }
