@@ -11,12 +11,12 @@ android {
     ndkVersion = "27.0.12077973"
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+        jvmTarget = "17"
     }
 
     defaultConfig {
@@ -44,20 +44,16 @@ flutter {
 }
 
 dependencies {
-    // libtorrent4j для работы с торрентами
-    implementation("org.libtorrent4j:libtorrent4j:2.1.0-35")
-    implementation("org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-35")
-    implementation("org.libtorrent4j:libtorrent4j-android-arm:2.1.0-35")
-    implementation("org.libtorrent4j:libtorrent4j-android-x86:2.1.0-35")
-    implementation("org.libtorrent4j:libtorrent4j-android-x86_64:2.1.0-35")
+    // TorrentEngine library module
+    implementation(project(":torrentengine"))
     
     // Kotlin Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     
     // Gson для JSON сериализации
-    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("com.google.code.gson:gson:2.11.0")
     
     // AndroidX libraries
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 }
