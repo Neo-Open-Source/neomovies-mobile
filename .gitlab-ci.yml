@@ -34,7 +34,7 @@ build:torrent-engine:
   stage: build
   image: mingc/android-build-box:latest
   tags:
-    - docker
+    - saas-linux-medium-amd64  # GitLab Instance Runner (4GB RAM, 2 cores)
   script:
     - echo "Building TorrentEngine library module..."
     - cd android
