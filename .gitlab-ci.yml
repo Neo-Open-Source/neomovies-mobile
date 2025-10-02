@@ -33,26 +33,23 @@ deploy:release:
         exit 1
       fi
 
-      DESCRIPTION=$(cat <<END_DESC
-NeoMovies Mobile ${VERSION}
+      DESCRIPTION="NeoMovies Mobile ${VERSION}
 
-Commit: ${CI_COMMIT_SHORT_SHA}
-Branch: ${CI_COMMIT_BRANCH}
-Pipeline: [#${CI_PIPELINE_ID}](${CI_PIPELINE_URL})
+      Commit: ${CI_COMMIT_SHORT_SHA}
+      Branch: ${CI_COMMIT_BRANCH}
+      Pipeline: [#${CI_PIPELINE_ID}](${CI_PIPELINE_URL})
 
-APK: \`$(basename $APK_FILE)\`
-END_DESC
-)
+      APK: \`$(basename $APK_FILE)\`"
 
       RELEASE_PAYLOAD=$(cat <<EOF
-{
-  "name": "NeoMovies ${VERSION}",
-  "tag_name": "${VERSION}",
-  "description": "${DESCRIPTION}",
-  "ref": "${CI_COMMIT_SHA}"
-}
-EOF
-)
+      {
+        "name": "NeoMovies ${VERSION}",
+        "tag_name": "${VERSION}",
+        "description": "${DESCRIPTION}",
+        "ref": "${CI_COMMIT_SHA}"
+      }
+      EOF
+      )
 
       curl -s --fail -X POST "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases" \
         --header "PRIVATE-TOKEN: ${CI_JOB_TOKEN}" \
