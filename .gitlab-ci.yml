@@ -11,8 +11,9 @@ variables:
   FLUTTER_VERSION: "3.35.5"
   # Flutter путь для CI
   FLUTTER_ROOT: "/opt/flutter"
-  # Android SDK
+  # Android SDK (стандартный путь в mingc/android-build-box)
   ANDROID_SDK_ROOT: "/opt/android-sdk"
+  ANDROID_HOME: "/opt/android-sdk"
   # Gradle настройки для CI (меньше RAM)
   GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs='-Xmx1536m -XX:MaxMetaspaceSize=512m' -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
   # Кэш
@@ -37,6 +38,14 @@ build:torrent-engine:
   image: mingc/android-build-box:latest
   tags:
     - saas-linux-medium-amd64  # GitLab Instance Runner (4GB RAM, 2 cores)
+  before_script:
+    - echo "Detecting Android SDK location..."
+    - export ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/opt/android-sdk}}
+    - echo "Android SDK: ${ANDROID_SDK_ROOT}"
+    - echo "Creating local.properties for Flutter..."
+    - echo "flutter.sdk=${FLUTTER_ROOT}" > android/local.properties
+    - echo "sdk.dir=${ANDROID_SDK_ROOT}" >> android/local.properties
+    - cat android/local.properties
   script:
     - echo "Building TorrentEngine library module..."
     - cd android
@@ -143,6 +152,10 @@ test:android-lint:
   image: mingc/android-build-box:latest
   tags:
     - docker
+  before_script:
+    - echo "Creating local.properties for Flutter..."
+    - echo "flutter.sdk=${FLUTTER_ROOT}" > android/local.properties
+    - echo "sdk.dir=${ANDROID_SDK_ROOT}" >> android/local.properties
   script:
     - echo "Running Android Lint..."
     - cd android
