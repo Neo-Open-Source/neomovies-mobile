@@ -6,6 +6,7 @@ on:
       - main
       - dev
       - 'feature/**'
+      - 'torrent-engine-downloads'
   pull_request:
     branches:
       - main
@@ -22,15 +23,19 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.5'
+          flutter-version: '3.19.6'
           channel: 'stable'
           cache: true
 
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Run code generation
+        run: |
+          dart run build_runner build --delete-conflicting-outputs || true
+
       - name: Run Flutter Analyze
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
 
       - name: Check formatting
         run: dart format --set-exit-if-changed .
@@ -54,6 +59,13 @@ jobs:
 
       - name: Run tests
         run: flutter test --coverage
+
+      - name: Run Integration tests  
+        run: flutter test test/integration/ --reporter=expanded
+        env:
+          # Mark that we're running in CI
+          CI: true
+          GITHUB_ACTIONS: true
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

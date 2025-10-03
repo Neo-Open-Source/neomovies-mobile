@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:auto_route/auto_route.dart';
+import '../../../data/services/player_embed_service.dart';
 
 enum WebPlayerType { vibix, alloha }
 
@@ -71,30 +72,58 @@ class _WebViewPlayerScreenState extends State<WebViewPlayerScreen> {
     _loadPlayer();
   }
 
-  void _loadPlayer() {
-    final playerUrl = _getPlayerUrl();
-    _controller.loadRequest(Uri.parse(playerUrl));
-  }
+  void _loadPlayer() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
 
-  String _getPlayerUrl() {
-    switch (widget.playerType) {
-      case WebPlayerType.vibix:
-        return _getVibixUrl();
-      case WebPlayerType.alloha:
-        return _getAllohaUrl();
+      final playerUrl = await _getPlayerUrl();
+      _controller.loadRequest(Uri.parse(playerUrl));
+    } catch (e) {
+      setState(() {
+        _error = 'Ошибка получения URL плеера: $e';
+        _isLoading = false;
+      });
     }
   }
 
-  String _getVibixUrl() {
-    // Vibix player URL with embedded video
-    final encodedVideoUrl = Uri.encodeComponent(widget.videoUrl);
-    return 'https://vibix.me/embed/?src=$encodedVideoUrl&autoplay=1&title=${Uri.encodeComponent(widget.title)}';
+  Future<String> _getPlayerUrl() async {
+    switch (widget.playerType) {
+      case WebPlayerType.vibix:
+        return await _getVibixUrl();
+      case WebPlayerType.alloha:
+        return await _getAllohaUrl();
+    }
   }
 
-  String _getAllohaUrl() {
-    // Alloha player URL with embedded video
-    final encodedVideoUrl = Uri.encodeComponent(widget.videoUrl);
-    return 'https://alloha.tv/embed?src=$encodedVideoUrl&autoplay=1&title=${Uri.encodeComponent(widget.title)}';
+  Future<String> _getVibixUrl() async {
+    try {
+      // Try to get embed URL from API server first
+      return await PlayerEmbedService.getVibixEmbedUrl(
+        videoUrl: widget.videoUrl,
+        title: widget.title,
+      );
+    } catch (e) {
+      // Fallback to direct URL if server is unavailable
+      final encodedVideoUrl = Uri.encodeComponent(widget.videoUrl);
+      return 'https://vibix.me/embed/?src=$encodedVideoUrl&autoplay=1&title=${Uri.encodeComponent(widget.title)}';
+    }
+  }
+
+  Future<String> _getAllohaUrl() async {
+    try {
+      // Try to get embed URL from API server first
+      return await PlayerEmbedService.getAllohaEmbedUrl(
+        videoUrl: widget.videoUrl,
+        title: widget.title,
+      );
+    } catch (e) {
+      // Fallback to direct URL if server is unavailable
+      final encodedVideoUrl = Uri.encodeComponent(widget.videoUrl);
+      return 'https://alloha.tv/embed?src=$encodedVideoUrl&autoplay=1&title=${Uri.encodeComponent(widget.title)}';
+    }
   }
 
   void _toggleFullscreen() {
