@@ -22,6 +22,8 @@
 - **Cached Network Image** - кэширование изображений
 - **Google Fonts** - красивые шрифты
 
+[![GitHub release](https://img.shields.io/github/v/release/Neo-Open-Source/neomovies-mobile)](https://github.com/Neo-Open-Source/neomovies-mobile/releases/latest)
+
 ## Установка
 
 1. Клонируйте репозиторий:
