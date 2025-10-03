@@ -63,13 +63,11 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       return;
     }
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => VideoPlayerScreen(
-          mediaId: imdbId,
-          mediaType: widget.mediaType,
-          title: title,
-        ),
+    // TODO: Implement proper player navigation with mediaId
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Player feature will be implemented. Media ID: $imdbId'),
+        duration: Duration(seconds: 2),
       ),
     );
   }
