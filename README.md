@@ -2,6 +2,8 @@
 
 Мобильное приложение для просмотра фильмов и сериалов, созданное на Flutter.
 
+[![Download](https://img.shields.io/github/v/release/Neo-Open-Source/neomovies-mobile?label=Download&style=for-the-badge&logo=github)](https://github.com/Neo-Open-Source/neomovies-mobile/releases/latest)
+
 ## Возможности
 
 - 📱 Кроссплатформенное приложение (Android/iOS(пока не реализовано))
@@ -21,8 +23,6 @@
 - **WebView** - воспроизведение видео
 - **Cached Network Image** - кэширование изображений
 - **Google Fonts** - красивые шрифты
-
-[![GitHub release](https://img.shields.io/github/v/release/Neo-Open-Source/neomovies-mobile)](https://github.com/Neo-Open-Source/neomovies-mobile/releases/latest)
 
 ## Установка
 
