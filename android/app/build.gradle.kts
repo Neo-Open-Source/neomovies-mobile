@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.neo.neomovies_mobile"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "27.0.12077973"
+    // ndkVersion = "27.0.12077973"  // Commented out to avoid license issues
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -48,7 +48,7 @@ dependencies {
     implementation(project(":torrentengine"))
     
     // Kotlin Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
     
     // Gson для JSON сериализации
     implementation("com.google.code.gson:gson:2.11.0")
