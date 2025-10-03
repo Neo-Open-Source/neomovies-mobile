@@ -29,7 +29,6 @@ jobs:
       - name: Check for differences with GitLab
         id: diffcheck
         run: |
-          # Если нет ветки main на GitLab, пушим всегда
           if ! git rev-parse gitlab/main >/dev/null 2>&1; then
             echo "has_diff=true" >> $GITHUB_OUTPUT
           else

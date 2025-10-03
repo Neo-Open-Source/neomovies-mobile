@@ -58,7 +58,7 @@ dependencies:
   # Utils
   equatable: ^2.0.5
   url_launcher: ^6.3.2
-  auto_route: ^8.3.0
+  auto_route: ^8.1.0
   # File operations and path management
   path_provider: ^2.1.4
   permission_handler: ^11.3.1
