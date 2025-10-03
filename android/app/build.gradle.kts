@@ -48,7 +48,7 @@ dependencies {
     implementation(project(":torrentengine"))
     
     // Kotlin Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
     
     // Gson для JSON сериализации
     implementation("com.google.code.gson:gson:2.11.0")
