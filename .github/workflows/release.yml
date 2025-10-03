@@ -182,17 +182,6 @@ jobs:
           ### What's Changed
           See the [full commit history](${{ github.server_url }}/${{ github.repository }}/compare/${{ github.event.before }}...${{ github.sha }})
           EOF
-
-      - name: Delete previous release if exists
-        run: |
-          RELEASE_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ steps.version.outputs.version }}" \
-            | jq -r '.id // empty')
-          if [ ! -z "$RELEASE_ID" ]; then
-            echo "Deleting previous release $RELEASE_ID"
-            curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
-          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -212,12 +201,68 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Publish to Telegram
+        run: |
+          # Prepare Telegram message
+          VERSION="${{ steps.version.outputs.version }}"
+          COMMIT_SHA="${{ github.sha }}"
+          BRANCH="${{ github.ref_name }}"
+          RUN_NUMBER="${{ github.run_number }}"
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          
+          # Create message text
+          MESSAGE="🚀 *NeoMovies Mobile ${VERSION}*
+          
+          📋 *Build Info:*
+          • Commit: \`${COMMIT_SHA:0:7}\`
+          • Branch: \`${BRANCH}\`
+          • Workflow Run: [#${RUN_NUMBER}](${REPO_URL}/actions/runs/${{ github.run_id }})
+          
+          📦 *Downloads:*
+          • *ARM64 (arm64-v8a)*: ${{ steps.sizes.outputs.arm64_size }} - Recommended for modern devices
+          • *ARM32 (armeabi-v7a)*: ${{ steps.sizes.outputs.arm32_size }} - For older devices
+          • *x86_64*: ${{ steps.sizes.outputs.x64_size }} - For emulators
+          
+          🔗 [View Release](${REPO_URL}/releases/tag/${VERSION})"
+          
+          # Send message to Telegram
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"chat_id\": \"${{ secrets.TELEGRAM_CHAT_ID }}\",
+              \"text\": \"$MESSAGE\",
+              \"parse_mode\": \"Markdown\",
+              \"disable_web_page_preview\": true
+            }"
+          
+          # Send APK files
+          echo "Uploading ARM64 APK to Telegram..."
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
+            -F "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -F "document=@./apks/app-arm64-v8a-release.apk" \
+            -F "caption=📱 NeoMovies ${VERSION} - ARM64 (Recommended)"
+          
+          echo "Uploading ARM32 APK to Telegram..."
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
+            -F "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -F "document=@./apks/app-armeabi-v7a-release.apk" \
+            -F "caption=📱 NeoMovies ${VERSION} - ARM32 (For older devices)"
+          
+          echo "Uploading x86_64 APK to Telegram..."
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
+            -F "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -F "document=@./apks/app-x86_64-release.apk" \
+            -F "caption=📱 NeoMovies ${VERSION} - x86_64 (For emulators)"
+          
+          echo "Telegram notification sent successfully!"
+
       - name: Summary
         run: |
           echo "## Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Release URL:** ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Telegram:** Published to channel" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### APK Files:" >> $GITHUB_STEP_SUMMARY
           echo "- ARM64: ${{ steps.sizes.outputs.arm64_size }}" >> $GITHUB_STEP_SUMMARY
