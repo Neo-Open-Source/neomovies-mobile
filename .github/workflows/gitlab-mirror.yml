@@ -10,19 +10,41 @@ on:
     types: [opened, edited, closed, reopened]
 
 jobs:
-  # ---- Mirror CODE ----
   mirror-code:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Push to GitLab
+      - name: Setup Git
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - name: Fetch GitLab branch
         run: |
           git remote add gitlab https://oauth2:${{ secrets.GITLAB_TOKEN }}@gitlab.com/foxixus/neomovies_mobile.git
-          git push --mirror gitlab
+          git fetch gitlab main || true
 
-  # ---- Mirror ISSUES ----
+      - name: Check for differences with GitLab
+        id: diffcheck
+        run: |
+          # Если нет ветки main на GitLab, пушим всегда
+          if ! git rev-parse gitlab/main >/dev/null 2>&1; then
+            echo "has_diff=true" >> $GITHUB_OUTPUT
+          else
+            DIFF=$(git rev-list --left-right --count HEAD...gitlab/main | awk '{print $1}')
+            if [[ "$DIFF" -gt 0 ]]; then
+              echo "has_diff=true" >> $GITHUB_OUTPUT
+            else
+              echo "has_diff=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Push to GitLab if there are changes
+        if: steps.diffcheck.outputs.has_diff == 'true'
+        run: git push gitlab HEAD:main
+
   mirror-issues:
     runs-on: ubuntu-latest
     if: github.event_name == 'issues'
@@ -37,7 +59,6 @@ jobs:
               \"description\": \"${{ github.event.issue.body }}\"
             }"
 
-  # ---- Mirror PULL REQUESTS as MERGE REQUESTS ----
   mirror-prs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
