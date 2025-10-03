@@ -1,0 +1,55 @@
+name: Full Mirror to GitLab
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    types: [opened, reopened, closed, edited]
+  issues:
+    types: [opened, edited, closed, reopened]
+
+jobs:
+  # ---- Mirror CODE ----
+  mirror-code:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Push to GitLab
+        run: |
+          git remote add gitlab https://oauth2:${{ secrets.GITLAB_TOKEN }}@gitlab.com/foxixus/neomovies_mobile.git
+          git push --mirror gitlab
+
+  # ---- Mirror ISSUES ----
+  mirror-issues:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues'
+    steps:
+      - name: Sync issue to GitLab
+        run: |
+          curl --request POST "https://gitlab.com/api/v4/projects/foxixus%2Fneomovies_mobile/issues" \
+            --header "PRIVATE-TOKEN: ${{ secrets.GITLAB_TOKEN }}" \
+            --header "Content-Type: application/json" \
+            --data "{
+              \"title\": \"${{ github.event.issue.title }}\",
+              \"description\": \"${{ github.event.issue.body }}\"
+            }"
+
+  # ---- Mirror PULL REQUESTS as MERGE REQUESTS ----
+  mirror-prs:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Sync PR to GitLab MR
+        run: |
+          curl --request POST "https://gitlab.com/api/v4/projects/foxixus%2Fneomovies_mobile/merge_requests" \
+            --header "PRIVATE-TOKEN: ${{ secrets.GITLAB_TOKEN }}" \
+            --header "Content-Type: application/json" \
+            --data "{
+              \"title\": \"${{ github.event.pull_request.title }}\",
+              \"source_branch\": \"${{ github.event.pull_request.head.ref }}\",
+              \"target_branch\": \"${{ github.event.pull_request.base.ref }}\",
+              \"description\": \"${{ github.event.pull_request.body }}\"
+            }"
