@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
+import '../models/torrent_info.dart';
 
 /// Data classes for torrent metadata (matching Kotlin side)
 
@@ -340,106 +341,89 @@ class DownloadProgress {
 class TorrentPlatformService {
   static const MethodChannel _channel = MethodChannel('com.neo.neomovies_mobile/torrent');
 
-  /// Получить базовую информацию из magnet-ссылки
-  static Future<MagnetBasicInfo> parseMagnetBasicInfo(String magnetUri) async {
-    try {
-      final String result = await _channel.invokeMethod('parseMagnetBasicInfo', {
-        'magnetUri': magnetUri,
-      });
-      
-      final Map<String, dynamic> json = jsonDecode(result);
-      return MagnetBasicInfo.fromJson(json);
-    } on PlatformException catch (e) {
-      throw Exception('Failed to parse magnet URI: ${e.message}');
-    } catch (e) {
-      throw Exception('Failed to parse magnet basic info: $e');
-    }
-  }
-
-  /// Получить полные метаданные торрента
-  static Future<TorrentMetadataFull> fetchFullMetadata(String magnetUri) async {
-    try {
-      final String result = await _channel.invokeMethod('fetchFullMetadata', {
-        'magnetUri': magnetUri,
-      });
-      
-      final Map<String, dynamic> json = jsonDecode(result);
-      return TorrentMetadataFull.fromJson(json);
-    } on PlatformException catch (e) {
-      throw Exception('Failed to fetch torrent metadata: ${e.message}');
-    } catch (e) {
-      throw Exception('Failed to parse torrent metadata: $e');
-    }
-  }
-
-  /// Тестирование торрент-сервиса
-  static Future<String> testTorrentService() async {
-    try {
-      final String result = await _channel.invokeMethod('testTorrentService');
-      return result;
-    } on PlatformException catch (e) {
-      throw Exception('Torrent service test failed: ${e.message}');
-    }
-  }
-
-  /// Get torrent metadata from magnet link (legacy method)
-  static Future<TorrentMetadata> getTorrentMetadata(String magnetLink) async {
-    try {
-      final String result = await _channel.invokeMethod('getTorrentMetadata', {
-        'magnetLink': magnetLink,
-      });
-      
-      final Map<String, dynamic> json = jsonDecode(result);
-      return TorrentMetadata.fromJson(json);
-    } on PlatformException catch (e) {
-      throw Exception('Failed to get torrent metadata: ${e.message}');
-    } catch (e) {
-      throw Exception('Failed to parse torrent metadata: $e');
-    }
-  }
-
-  /// Start downloading selected files from torrent
-  static Future<String> startDownload({
-    required String magnetLink,
-    required List<int> selectedFiles,
-    String? downloadPath,
+  /// Add torrent from magnet URI and start downloading
+  static Future<String> addTorrent({
+    required String magnetUri,
+    String? savePath,
   }) async {
     try {
-      final String infoHash = await _channel.invokeMethod('startDownload', {
-        'magnetLink': magnetLink,
-        'selectedFiles': selectedFiles,
-        'downloadPath': downloadPath,
+      final String infoHash = await _channel.invokeMethod('addTorrent', {
+        'magnetUri': magnetUri,
+        'savePath': savePath ?? '/storage/emulated/0/Download/NeoMovies',
       });
       
       return infoHash;
     } on PlatformException catch (e) {
-      throw Exception('Failed to start download: ${e.message}');
+      throw Exception('Failed to add torrent: ${e.message}');
+    }
+  }
+
+  /// Get all torrents
+  static Future<List<DownloadProgress>> getAllDownloads() async {
+    try {
+      final String result = await _channel.invokeMethod('getTorrents');
+      
+      final List<dynamic> jsonList = jsonDecode(result);
+      return jsonList.map((json) {
+        final data = json as Map<String, dynamic>;
+        return DownloadProgress(
+          infoHash: data['infoHash'] as String,
+          progress: (data['progress'] as num).toDouble(),
+          downloadRate: data['downloadSpeed'] as int,
+          uploadRate: data['uploadSpeed'] as int,
+          numSeeds: data['numSeeds'] as int,
+          numPeers: data['numPeers'] as int,
+          state: data['state'] as String,
+        );
+      }).toList();
+    } on PlatformException catch (e) {
+      throw Exception('Failed to get all downloads: ${e.message}');
+    } catch (e) {
+      throw Exception('Failed to parse downloads: $e');
+    }
+  }
+
+  /// Get single torrent info
+  static Future<TorrentInfo?> getTorrent(String infoHash) async {
+    try {
+      final String result = await _channel.invokeMethod('getTorrent', {
+        'infoHash': infoHash,
+      });
+      
+      final Map<String, dynamic> json = jsonDecode(result);
+      return TorrentInfo.fromAndroidJson(json);
+    } on PlatformException catch (e) {
+      if (e.code == 'NOT_FOUND') return null;
+      throw Exception('Failed to get torrent: ${e.message}');
+    } catch (e) {
+      throw Exception('Failed to parse torrent: $e');
     }
   }
 
   /// Get download progress for a torrent
   static Future<DownloadProgress?> getDownloadProgress(String infoHash) async {
     try {
-      final String? result = await _channel.invokeMethod('getDownloadProgress', {
-        'infoHash': infoHash,
-      });
+      final torrentInfo = await getTorrent(infoHash);
+      if (torrentInfo == null) return null;
       
-      if (result == null) return null;
-      
-      final Map<String, dynamic> json = jsonDecode(result);
-      return DownloadProgress.fromJson(json);
-    } on PlatformException catch (e) {
-      if (e.code == 'NOT_FOUND') return null;
-      throw Exception('Failed to get download progress: ${e.message}');
+      return DownloadProgress(
+        infoHash: torrentInfo.infoHash,
+        progress: torrentInfo.progress,
+        downloadRate: torrentInfo.downloadSpeed,
+        uploadRate: torrentInfo.uploadSpeed,
+        numSeeds: torrentInfo.numSeeds,
+        numPeers: torrentInfo.numPeers,
+        state: torrentInfo.state,
+      );
     } catch (e) {
-      throw Exception('Failed to parse download progress: $e');
+      return null;
     }
   }
 
   /// Pause download
   static Future<bool> pauseDownload(String infoHash) async {
     try {
-      final bool result = await _channel.invokeMethod('pauseDownload', {
+      final bool result = await _channel.invokeMethod('pauseTorrent', {
         'infoHash': infoHash,
       });
       
@@ -452,7 +436,7 @@ class TorrentPlatformService {
   /// Resume download
   static Future<bool> resumeDownload(String infoHash) async {
     try {
-      final bool result = await _channel.invokeMethod('resumeDownload', {
+      final bool result = await _channel.invokeMethod('resumeTorrent', {
         'infoHash': infoHash,
       });
       
@@ -465,8 +449,9 @@ class TorrentPlatformService {
   /// Cancel and remove download
   static Future<bool> cancelDownload(String infoHash) async {
     try {
-      final bool result = await _channel.invokeMethod('cancelDownload', {
+      final bool result = await _channel.invokeMethod('removeTorrent', {
         'infoHash': infoHash,
+        'deleteFiles': true,
       });
       
       return result;
@@ -475,19 +460,138 @@ class TorrentPlatformService {
     }
   }
 
-  /// Get all active downloads
-  static Future<List<DownloadProgress>> getAllDownloads() async {
+  /// Set file priority
+  static Future<bool> setFilePriority(String infoHash, int fileIndex, FilePriority priority) async {
     try {
-      final String result = await _channel.invokeMethod('getAllDownloads');
+      final bool result = await _channel.invokeMethod('setFilePriority', {
+        'infoHash': infoHash,
+        'fileIndex': fileIndex,
+        'priority': priority.value,
+      });
       
-      final List<dynamic> jsonList = jsonDecode(result);
-      return jsonList
-          .map((json) => DownloadProgress.fromJson(json as Map<String, dynamic>))
-          .toList();
+      return result;
     } on PlatformException catch (e) {
-      throw Exception('Failed to get all downloads: ${e.message}');
-    } catch (e) {
-      throw Exception('Failed to parse downloads: $e');
+      throw Exception('Failed to set file priority: ${e.message}');
     }
   }
+
+  /// Start downloading selected files from torrent
+  static Future<String> startDownload({
+    required String magnetLink,
+    required List<int> selectedFiles,
+    String? downloadPath,
+  }) async {
+    try {
+      // First add the torrent
+      final String infoHash = await addTorrent(
+        magnetUri: magnetLink,
+        savePath: downloadPath,
+      );
+      
+      // Wait for metadata to be received
+      await Future.delayed(const Duration(seconds: 2));
+      
+      // Set file priorities
+      final torrentInfo = await getTorrent(infoHash);
+      if (torrentInfo != null) {
+        for (int i = 0; i < torrentInfo.files.length; i++) {
+          final priority = selectedFiles.contains(i) 
+            ? FilePriority.NORMAL 
+            : FilePriority.DONT_DOWNLOAD;
+          await setFilePriority(infoHash, i, priority);
+        }
+      }
+      
+      return infoHash;
+    } catch (e) {
+      throw Exception('Failed to start download: $e');
+    }
+  }
+
+  // Legacy methods for compatibility with existing code
+
+  /// Get torrent metadata from magnet link (legacy method)
+  static Future<TorrentMetadata> getTorrentMetadata(String magnetLink) async {
+    try {
+      // This is a simplified implementation that adds the torrent and gets metadata
+      final infoHash = await addTorrent(magnetUri: magnetLink);
+      await Future.delayed(const Duration(seconds: 3)); // Wait for metadata
+      
+      final torrentInfo = await getTorrent(infoHash);
+      if (torrentInfo == null) {
+        throw Exception('Failed to get torrent metadata');
+      }
+      
+      return TorrentMetadata(
+        name: torrentInfo.name,
+        totalSize: torrentInfo.totalSize,
+        files: torrentInfo.files.map((file) => TorrentFileInfo(
+          path: file.path,
+          size: file.size,
+          selected: file.priority > FilePriority.DONT_DOWNLOAD,
+        )).toList(),
+        infoHash: torrentInfo.infoHash,
+      );
+    } catch (e) {
+      throw Exception('Failed to get torrent metadata: $e');
+    }
+  }
+
+  /// Получить базовую информацию из magnet-ссылки (legacy)
+  static Future<MagnetBasicInfo> parseMagnetBasicInfo(String magnetUri) async {
+    try {
+      // Parse magnet URI manually since Android implementation doesn't have this
+      final uri = Uri.parse(magnetUri);
+      final params = uri.queryParameters;
+      
+      return MagnetBasicInfo(
+        name: params['dn'] ?? 'Unknown',
+        infoHash: params['xt']?.replaceFirst('urn:btih:', '') ?? '',
+        trackers: params['tr'] != null ? [params['tr']!] : [],
+        totalSize: 0,
+      );
+    } catch (e) {
+      throw Exception('Failed to parse magnet basic info: $e');
+    }
+  }
+
+  /// Получить полные метаданные торрента (legacy)
+  static Future<TorrentMetadataFull> fetchFullMetadata(String magnetUri) async {
+    try {
+      final basicInfo = await parseMagnetBasicInfo(magnetUri);
+      final metadata = await getTorrentMetadata(magnetUri);
+      
+      return TorrentMetadataFull(
+        name: metadata.name,
+        infoHash: metadata.infoHash,
+        totalSize: metadata.totalSize,
+        pieceLength: 0,
+        numPieces: 0,
+        fileStructure: FileStructure(
+          rootDirectory: DirectoryNode(
+            name: metadata.name,
+            path: '/',
+            files: metadata.files.map((file) => FileInfo(
+              name: file.path.split('/').last,
+              path: file.path,
+              size: file.size,
+              index: metadata.files.indexOf(file),
+            )).toList(),
+            subdirectories: [],
+            totalSize: metadata.totalSize,
+            fileCount: metadata.files.length,
+          ),
+          totalFiles: metadata.files.length,
+          filesByType: {'video': metadata.files.length},
+        ),
+        trackers: basicInfo.trackers,
+        creationDate: 0,
+        comment: '',
+        createdBy: '',
+      );
+    } catch (e) {
+      throw Exception('Failed to fetch full metadata: $e');
+    }
+  }
+}
 }

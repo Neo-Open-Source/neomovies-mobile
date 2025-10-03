@@ -33,8 +33,13 @@ class AuthRepository {
   }
 
   Future<void> verifyEmail(String email, String code) async {
-    await _apiClient.verify(email, code);
-    // After successful verification, the user should log in.
+    final response = await _apiClient.verify(email, code);
+    // Auto-login user after successful verification
+    await _storageService.saveToken(response.token);
+    await _storageService.saveUserData(
+      name: response.user.name,
+      email: response.user.email,
+    );
   }
 
   Future<void> resendVerificationCode(String email) async {

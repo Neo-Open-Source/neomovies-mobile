@@ -97,23 +97,25 @@ class Movie extends HiveObject {
 
   String get fullPosterUrl {
     if (posterPath == null || posterPath!.isEmpty) {
-      // Use a generic placeholder
-      return 'https://via.placeholder.com/500x750.png?text=No+Poster';
+      // Use API placeholder
+      final apiUrl = dotenv.env['API_URL'] ?? 'https://api.neomovies.ru';
+      return '$apiUrl/api/v1/images/w500/placeholder.jpg';
     }
-    // TMDB CDN base URL
-    const tmdbBaseUrl = 'https://image.tmdb.org/t/p';
+    // Use NeoMovies API images endpoint instead of TMDB directly
+    final apiUrl = dotenv.env['API_URL'] ?? 'https://api.neomovies.ru';
     final cleanPath = posterPath!.startsWith('/') ? posterPath!.substring(1) : posterPath!;
-    return '$tmdbBaseUrl/w500/$cleanPath';
+    return '$apiUrl/api/v1/images/w500/$cleanPath';
   }
 
   String get fullBackdropUrl {
     if (backdropPath == null || backdropPath!.isEmpty) {
-      // Use a generic placeholder
-      return 'https://via.placeholder.com/1280x720.png?text=No+Backdrop';
+      // Use API placeholder
+      final apiUrl = dotenv.env['API_URL'] ?? 'https://api.neomovies.ru';
+      return '$apiUrl/api/v1/images/w780/placeholder.jpg';
     }
-    // TMDB CDN base URL
-    const tmdbBaseUrl = 'https://image.tmdb.org/t/p';
+    // Use NeoMovies API images endpoint instead of TMDB directly
+    final apiUrl = dotenv.env['API_URL'] ?? 'https://api.neomovies.ru';
     final cleanPath = backdropPath!.startsWith('/') ? backdropPath!.substring(1) : backdropPath!;
-    return '$tmdbBaseUrl/w780/$cleanPath';
+    return '$apiUrl/api/v1/images/w780/$cleanPath';
   }
 }

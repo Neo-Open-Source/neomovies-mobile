@@ -61,16 +61,7 @@ class _VerifyScreenState extends State<VerifyScreen> {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
       Provider.of<AuthProvider>(context, listen: false)
-          .verifyEmail(widget.email, _code)
-          .then((_) {
-        final auth = Provider.of<AuthProvider>(context, listen: false);
-        if (auth.state != AuthState.error) {
-          Navigator.of(context).pop(); // Go back to LoginScreen
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Email verified. You can now login.')),
-          );
-        }
-      });
+          .verifyEmail(widget.email, _code);
     }
   }
 
@@ -82,6 +73,16 @@ class _VerifyScreenState extends State<VerifyScreen> {
       ),
       body: Consumer<AuthProvider>(
         builder: (context, auth, child) {
+          // Auto-navigate when user becomes authenticated
+          if (auth.state == AuthState.authenticated) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).pop(); // Go back to previous screen
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Email verified and logged in successfully!')),
+              );
+            });
+          }
+
           return Form(
             key: _formKey,
             child: Padding(
