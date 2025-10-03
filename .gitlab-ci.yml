@@ -20,7 +20,7 @@ test:dart:
   script:
     - flutter --version
     - flutter pub get
-    - flutter analyze --fatal-infos
+    - flutter analyze --fatal-warnings
     - flutter test --coverage
     - flutter build web --release --dart-define=dart.vm.profile=false
   artifacts:

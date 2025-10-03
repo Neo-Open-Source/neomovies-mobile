@@ -6,7 +6,7 @@ import 'package:chewie/chewie.dart';
 import 'package:neomovies_mobile/data/models/player/video_source.dart';
 import 'package:neomovies_mobile/data/models/player/video_quality.dart';
 import 'package:neomovies_mobile/data/models/player/audio_track.dart';
-import 'package:neomovies_mobile/data/models/player/subtitle.dart';
+import 'package:neomovies_mobile/data/models/player/subtitle.dart' as local_subtitle;
 import 'package:neomovies_mobile/data/models/player/player_settings.dart';
 
 class PlayerProvider with ChangeNotifier {
@@ -37,13 +37,13 @@ class PlayerProvider with ChangeNotifier {
   List<VideoSource> _sources = [];
   List<VideoQuality> _qualities = [];
   List<AudioTrack> _audioTracks = [];
-  List<Subtitle> _subtitles = [];
+  List<local_subtitle.Subtitle> _subtitles = [];
   
   // Selected options
   VideoSource? _selectedSource;
   VideoQuality? _selectedQuality;
   AudioTrack? _selectedAudioTrack;
-  Subtitle? _selectedSubtitle;
+  local_subtitle.Subtitle? _selectedSubtitle;
   
   // Playback state
   double _volume = 1.0;
@@ -67,11 +67,11 @@ class PlayerProvider with ChangeNotifier {
   List<VideoSource> get sources => _sources;
   List<VideoQuality> get qualities => _qualities;
   List<AudioTrack> get audioTracks => _audioTracks;
-  List<Subtitle> get subtitles => _subtitles;
+  List<local_subtitle.Subtitle> get subtitles => _subtitles;
   VideoSource? get selectedSource => _selectedSource;
   VideoQuality? get selectedQuality => _selectedQuality;
   AudioTrack? get selectedAudioTrack => _selectedAudioTrack;
-  Subtitle? get selectedSubtitle => _selectedSubtitle;
+  local_subtitle.Subtitle? get selectedSubtitle => _selectedSubtitle;
   double get volume => _volume;
   bool get isMuted => _isMuted;
   double get playbackSpeed => _playbackSpeed;
@@ -94,7 +94,7 @@ class PlayerProvider with ChangeNotifier {
     List<VideoSource>? sources,
     List<VideoQuality>? qualities,
     List<AudioTrack>? audioTracks,
-    List<Subtitle>? subtitles,
+    List<local_subtitle.Subtitle>? subtitles,
   }) async {
     _mediaId = mediaId;
     _mediaType = mediaType;
@@ -305,7 +305,7 @@ class PlayerProvider with ChangeNotifier {
   }
   
   // Change subtitle
-  void setSubtitle(Subtitle subtitle) {
+  void setSubtitle(local_subtitle.Subtitle subtitle) {
     if (_selectedSubtitle == subtitle) return;
     
     _selectedSubtitle = subtitle;
