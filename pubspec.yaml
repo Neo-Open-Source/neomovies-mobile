@@ -52,6 +52,9 @@ dependencies:
   # Video Player (WebView only)
   webview_flutter: ^4.7.0
   wakelock_plus: ^1.2.1
+  # Video Player with native controls
+  video_player: ^2.9.2
+  chewie: ^1.8.5
   # Utils
   equatable: ^2.0.5
   url_launcher: ^6.3.2

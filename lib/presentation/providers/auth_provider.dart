@@ -93,9 +93,9 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await _authRepository.verifyEmail(email, code);
-      // After verification, user should log in.
-      // For a better UX, we could auto-login them, but for now, we'll just go to the unauthenticated state.
-      _state = AuthState.unauthenticated;
+      // Auto-login after successful verification
+      _user = await _authRepository.getCurrentUser();
+      _state = AuthState.authenticated;
     } catch (e) {
       _error = e.toString();
       _state = AuthState.error;

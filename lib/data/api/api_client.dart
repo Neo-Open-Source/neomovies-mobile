@@ -5,6 +5,7 @@ import 'package:neomovies_mobile/data/models/reaction.dart';
 import 'package:neomovies_mobile/data/models/auth_response.dart';
 import 'package:neomovies_mobile/data/models/user.dart';
 import 'package:neomovies_mobile/data/api/neomovies_api_client.dart'; // новый клиент
+import 'package:neomovies_mobile/data/exceptions/auth_exceptions.dart';
 
 class ApiClient {
   final NeoMoviesApiClient _neoClient;
@@ -116,12 +117,22 @@ class ApiClient {
     ).then((_) {}); // старый код ничего не возвращал
   }
 
-  Future<AuthResponse> login(String email, String password) {
-    return _neoClient.login(email: email, password: password);
+  Future<AuthResponse> login(String email, String password) async {
+    try {
+      return await _neoClient.login(email: email, password: password);
+    } catch (e) {
+      final errorMessage = e.toString();
+      if (errorMessage.contains('Account not activated') || 
+          errorMessage.contains('not verified') ||
+          errorMessage.contains('Please verify your email')) {
+        throw UnverifiedAccountException(email, message: errorMessage);
+      }
+      rethrow;
+    }
   }
 
-  Future<void> verify(String email, String code) {
-    return _neoClient.verifyEmail(email: email, code: code).then((_) {});
+  Future<AuthResponse> verify(String email, String code) {
+    return _neoClient.verifyEmail(email: email, code: code);
   }
 
   Future<void> resendCode(String email) {
