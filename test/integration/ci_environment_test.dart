@@ -16,7 +16,7 @@ void main() {
       print('  Platform: ${Platform.operatingSystem}');
       
       if (isGitHubActions || isCI) {
-        print('✅ Running in CI/GitHub Actions environment');
+        print('Running in CI/GitHub Actions environment');
         expect(isCI, isTrue, reason: 'CI environment variable should be set');
         
         if (isGitHubActions) {
@@ -24,7 +24,7 @@ void main() {
           print('  GitHub Actions Runner OS: $runnerOS');
         }
       } else {
-        print('🔧 Running in local development environment');
+        print('Running in local development environment');
       }
       
       // Test should always pass regardless of environment
@@ -42,7 +42,7 @@ void main() {
       // Check if running in CI and validate expected environment
       final isCI = Platform.environment['CI'] == 'true';
       if (isCI) {
-        print('✅ Dart environment validated in CI');
+        print('Dart environment validated in CI');
         
         // CI should have these basic characteristics
         expect(Platform.operatingSystem, anyOf('linux', 'macos', 'windows'));
@@ -61,9 +61,9 @@ void main() {
         // Test with a reliable endpoint
         final socket = await Socket.connect('8.8.8.8', 53, timeout: const Duration(seconds: 5));
         socket.destroy();
-        print('✅ Network connectivity available');
+        print('Network connectivity available');
       } catch (e) {
-        print('ℹ️ Limited network connectivity: $e');
+        print('Limited network connectivity: $e');
         // Don't fail the test - some CI environments have restricted network
       }
       
@@ -77,7 +77,7 @@ void main() {
       expect(setUp, isNotNull, reason: 'Test setup functions should be available');
       expect(tearDown, isNotNull, reason: 'Test teardown functions should be available');
       
-      print('✅ Test infrastructure validated');
+      print('Test infrastructure validated');
     });
   });
 }
