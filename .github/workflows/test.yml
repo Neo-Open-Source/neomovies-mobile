@@ -60,6 +60,13 @@ jobs:
       - name: Run tests
         run: flutter test --coverage
 
+      - name: Run Integration tests  
+        run: flutter test test/integration/ --reporter=expanded
+        env:
+          # Mark that we're running in CI
+          CI: true
+          GITHUB_ACTIONS: true
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
