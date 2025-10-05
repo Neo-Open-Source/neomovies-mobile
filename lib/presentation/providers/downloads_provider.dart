@@ -166,12 +166,9 @@ class DownloadsProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void _setError(String? error) {
+  void _setError(String? error, [String? stackTrace]) {
     _error = error;
-    notifyListeners();
-  }
-}? error) {
-    _error = error;
+    _stackTrace = stackTrace;
     notifyListeners();
   }
 }
