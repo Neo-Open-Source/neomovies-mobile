@@ -3,9 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/downloads_provider.dart';
 import '../../../data/models/torrent_info.dart';
 import 'torrent_detail_screen.dart';
-import 'package:auto_route/auto_route.dart';
 
-@RoutePage()
 class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({super.key});
 

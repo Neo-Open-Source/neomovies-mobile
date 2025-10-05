@@ -33,11 +33,15 @@ class MovieDetailProvider with ChangeNotifier {
     notifyListeners();
 
     try {
+      print('Loading media: ID=$mediaId, type=$mediaType');
+      
       // Load movie/TV details
       if (mediaType == 'movie') {
         _movie = await _movieRepository.getMovieById(mediaId.toString());
+        print('Movie loaded successfully: ${_movie?.title}');
       } else {
         _movie = await _movieRepository.getTvById(mediaId.toString());
+        print('TV show loaded successfully: ${_movie?.title}');
       }
       
       _isLoading = false;
@@ -46,15 +50,18 @@ class MovieDetailProvider with ChangeNotifier {
       // Try to load IMDb ID (non-blocking)
       if (_movie != null) {
         try {
+          print('Loading IMDb ID for $mediaType $mediaId');
           _imdbId = await _apiClient.getImdbId(mediaId.toString(), mediaType);
+          print('IMDb ID loaded: $_imdbId');
         } catch (e) {
           // IMDb ID loading failed, but don't fail the whole screen
           print('Failed to load IMDb ID: $e');
           _imdbId = null;
         }
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('Error loading media: $e');
+      print('Stack trace: $stackTrace');
       _error = e.toString();
       _isLoading = false;
       notifyListeners();

@@ -19,6 +19,7 @@ import 'package:neomovies_mobile/presentation/providers/favorites_provider.dart'
 import 'package:neomovies_mobile/presentation/providers/home_provider.dart';
 import 'package:neomovies_mobile/presentation/providers/movie_detail_provider.dart';
 import 'package:neomovies_mobile/presentation/providers/reactions_provider.dart';
+import 'package:neomovies_mobile/presentation/providers/downloads_provider.dart';
 import 'package:neomovies_mobile/presentation/screens/main_screen.dart';
 import 'package:provider/provider.dart';
 
