@@ -252,6 +252,30 @@ class NeoMoviesApiClient {
   }
 
   // ============================================
+  // External IDs (IMDb, TVDB, etc.)
+  // ============================================
+
+  /// Get external IDs (IMDb, TVDB) for a movie or TV show
+  Future<String?> getExternalIds(String mediaId, String mediaType) async {
+    try {
+      final uri = Uri.parse('$apiUrl/${mediaType}s/$mediaId/external-ids');
+      final response = await _client.get(uri);
+
+      if (response.statusCode == 200) {
+        final apiResponse = json.decode(response.body);
+        final data = (apiResponse is Map && apiResponse['data'] != null) 
+            ? apiResponse['data'] 
+            : apiResponse;
+        return data['imdb_id'] as String?;
+      }
+      return null;
+    } catch (e) {
+      print('Error getting external IDs: $e');
+      return null;
+    }
+  }
+
+  // ============================================
   // Unified Search
   // ============================================
 

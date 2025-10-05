@@ -4,6 +4,7 @@ import 'package:neomovies_mobile/presentation/screens/auth/profile_screen.dart';
 import 'package:neomovies_mobile/presentation/screens/favorites/favorites_screen.dart';
 import 'package:neomovies_mobile/presentation/screens/search/search_screen.dart';
 import 'package:neomovies_mobile/presentation/screens/home/home_screen.dart';
+import 'package:neomovies_mobile/presentation/screens/downloads/downloads_screen.dart';
 import 'package:provider/provider.dart';
 
 class MainScreen extends StatefulWidget {
@@ -30,7 +31,7 @@ class _MainScreenState extends State<MainScreen> {
     HomeScreen(),
     SearchScreen(),
     FavoritesScreen(),
-    Center(child: Text('Downloads Page')),
+    DownloadsScreen(),
     ProfileScreen(),
   ];
 

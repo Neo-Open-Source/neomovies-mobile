@@ -102,10 +102,7 @@ class ApiClient {
 
   // ---- External IDs (IMDb) ----
   Future<String?> getImdbId(String mediaId, String mediaType) async {
-    // This would need to be implemented in NeoMoviesApiClient
-    // For now, return null or implement a stub
-    // TODO: Add getExternalIds endpoint to backend
-    return null;
+    return _neoClient.getExternalIds(mediaId, mediaType);
   }
 
   // ---- Auth ----
