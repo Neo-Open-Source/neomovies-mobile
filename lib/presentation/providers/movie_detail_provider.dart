@@ -24,6 +24,9 @@ class MovieDetailProvider with ChangeNotifier {
   String? _error;
   String? get error => _error;
 
+  String? _stackTrace;
+  String? get stackTrace => _stackTrace;
+
   Future<void> loadMedia(int mediaId, String mediaType) async {
     _isLoading = true;
     _isImdbLoading = true;
@@ -63,6 +66,7 @@ class MovieDetailProvider with ChangeNotifier {
       print('Error loading media: $e');
       print('Stack trace: $stackTrace');
       _error = e.toString();
+      _stackTrace = stackTrace.toString();
       _isLoading = false;
       notifyListeners();
     } finally {

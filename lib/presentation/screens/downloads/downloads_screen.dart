@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/downloads_provider.dart';
+import '../../widgets/error_display.dart';
 import '../../../data/models/torrent_info.dart';
 import 'torrent_detail_screen.dart';
 
@@ -46,37 +47,13 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           }
 
           if (provider.error != null) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Colors.red.shade300,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Ошибка загрузки',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    provider.error!,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () {
-                      provider.refreshDownloads();
-                    },
-                    child: const Text('Попробовать снова'),
-                  ),
-                ],
-              ),
+            return ErrorDisplay(
+              title: 'Ошибка загрузки торрентов',
+              error: provider.error!,
+              stackTrace: provider.stackTrace,
+              onRetry: () {
+                provider.refreshDownloads();
+              },
             );
           }
 

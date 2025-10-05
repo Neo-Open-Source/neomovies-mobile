@@ -9,10 +9,12 @@ class DownloadsProvider with ChangeNotifier {
   Timer? _progressTimer;
   bool _isLoading = false;
   String? _error;
+  String? _stackTrace;
 
   List<TorrentInfo> get torrents => List.unmodifiable(_torrents);
   bool get isLoading => _isLoading;
   String? get error => _error;
+  String? get stackTrace => _stackTrace;
 
   DownloadsProvider() {
     _startProgressUpdates();
@@ -165,6 +167,10 @@ class DownloadsProvider with ChangeNotifier {
   }
 
   void _setError(String? error) {
+    _error = error;
+    notifyListeners();
+  }
+}? error) {
     _error = error;
     notifyListeners();
   }

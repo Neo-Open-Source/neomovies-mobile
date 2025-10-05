@@ -7,6 +7,7 @@ import 'package:neomovies_mobile/presentation/providers/reactions_provider.dart'
 import 'package:neomovies_mobile/presentation/providers/movie_detail_provider.dart';
 import 'package:neomovies_mobile/presentation/screens/player/video_player_screen.dart';
 import 'package:neomovies_mobile/presentation/screens/torrent_selector/torrent_selector_screen.dart';
+import 'package:neomovies_mobile/presentation/widgets/error_display.dart';
 import 'package:provider/provider.dart';
 
 class MovieDetailScreen extends StatefulWidget {
@@ -89,7 +90,15 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           }
 
           if (provider.error != null) {
-            return Center(child: Text('Error: ${provider.error}'));
+            return ErrorDisplay(
+              title: 'Ошибка загрузки ${widget.mediaType == 'movie' ? 'фильма' : 'сериала'}',
+              error: provider.error!,
+              stackTrace: provider.stackTrace,
+              onRetry: () {
+                Provider.of<MovieDetailProvider>(context, listen: false)
+                    .loadMedia(int.parse(widget.movieId), widget.mediaType);
+              },
+            );
           }
 
           if (provider.movie == null) {
