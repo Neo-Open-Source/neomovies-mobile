@@ -186,17 +186,28 @@ class NeoMoviesApiClient {
   /// Get movie by ID
   Future<Movie> getMovieById(String id) async {
     final uri = Uri.parse('$apiUrl/movies/$id');
+    print('Fetching movie from: $uri');
     final response = await _client.get(uri);
+
+    print('Response status: ${response.statusCode}');
+    print('Response body: ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}...');
 
     if (response.statusCode == 200) {
       final apiResponse = json.decode(response.body);
+      print('Decoded API response type: ${apiResponse.runtimeType}');
+      print('API response keys: ${apiResponse is Map ? apiResponse.keys.toList() : 'Not a map'}');
+      
       // API returns: {"success": true, "data": {...}}
       final movieData = (apiResponse is Map && apiResponse['data'] != null) 
           ? apiResponse['data'] 
           : apiResponse;
+      
+      print('Movie data keys: ${movieData is Map ? movieData.keys.toList() : 'Not a map'}');
+      print('Movie data: $movieData');
+      
       return Movie.fromJson(movieData);
     } else {
-      throw Exception('Failed to load movie: ${response.statusCode}');
+      throw Exception('Failed to load movie: ${response.statusCode} - ${response.body}');
     }
   }
 
@@ -227,17 +238,28 @@ class NeoMoviesApiClient {
   /// Get TV show by ID
   Future<Movie> getTvShowById(String id) async {
     final uri = Uri.parse('$apiUrl/tv/$id');
+    print('Fetching TV show from: $uri');
     final response = await _client.get(uri);
+
+    print('Response status: ${response.statusCode}');
+    print('Response body: ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}...');
 
     if (response.statusCode == 200) {
       final apiResponse = json.decode(response.body);
+      print('Decoded API response type: ${apiResponse.runtimeType}');
+      print('API response keys: ${apiResponse is Map ? apiResponse.keys.toList() : 'Not a map'}');
+      
       // API returns: {"success": true, "data": {...}}
       final tvData = (apiResponse is Map && apiResponse['data'] != null) 
           ? apiResponse['data'] 
           : apiResponse;
+      
+      print('TV data keys: ${tvData is Map ? tvData.keys.toList() : 'Not a map'}');
+      print('TV data: $tvData');
+      
       return Movie.fromJson(tvData);
     } else {
-      throw Exception('Failed to load TV show: ${response.statusCode}');
+      throw Exception('Failed to load TV show: ${response.statusCode} - ${response.body}');
     }
   }
 

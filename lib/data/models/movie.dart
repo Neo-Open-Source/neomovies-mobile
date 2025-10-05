@@ -68,43 +68,75 @@ class Movie extends HiveObject {
 
   factory Movie.fromJson(Map<String, dynamic> json) {
     try {
-      // Parse genres safely
+      print('Parsing Movie from JSON: ${json.keys.toList()}');
+      
+      // Parse genres safely - API returns: [{"id": 18, "name": "Drama"}]
       List<String> genresList = [];
-      if (json['genres'] != null) {
-        if (json['genres'] is List) {
-          genresList = (json['genres'] as List)
-              .map((g) => g is Map ? (g['name'] as String?) ?? '' : g.toString())
-              .where((name) => name.isNotEmpty)
-              .toList();
+      if (json['genres'] != null && json['genres'] is List) {
+        genresList = (json['genres'] as List)
+            .map((g) {
+              if (g is Map && g.containsKey('name')) {
+                return g['name'] as String? ?? '';
+              }
+              return '';
+            })
+            .where((name) => name.isNotEmpty)
+            .toList();
+        print('Parsed genres: $genresList');
+      }
+
+      // Parse dates safely
+      DateTime? parsedDate;
+      final releaseDate = json['release_date'];
+      final firstAirDate = json['first_air_date'];
+      
+      if (releaseDate != null && releaseDate.toString().isNotEmpty && releaseDate.toString() != 'null') {
+        parsedDate = DateTime.tryParse(releaseDate.toString());
+      } else if (firstAirDate != null && firstAirDate.toString().isNotEmpty && firstAirDate.toString() != 'null') {
+        parsedDate = DateTime.tryParse(firstAirDate.toString());
+      }
+
+      // Parse runtime (movie) or episode_run_time (TV)
+      int? runtimeValue;
+      if (json['runtime'] != null && json['runtime'] is num && (json['runtime'] as num) > 0) {
+        runtimeValue = (json['runtime'] as num).toInt();
+      } else if (json['episode_run_time'] != null && json['episode_run_time'] is List) {
+        final episodeRunTime = json['episode_run_time'] as List;
+        if (episodeRunTime.isNotEmpty && episodeRunTime.first is num) {
+          runtimeValue = (episodeRunTime.first as num).toInt();
         }
       }
 
-      return Movie(
-        id: (json['id'] as num).toString(), // Ensure id is a string
+      // Determine media type
+      String mediaTypeValue = 'movie';
+      if (json.containsKey('media_type') && json['media_type'] != null) {
+        mediaTypeValue = json['media_type'] as String;
+      } else if (json.containsKey('name') || json.containsKey('first_air_date')) {
+        mediaTypeValue = 'tv';
+      }
+
+      final movie = Movie(
+        id: (json['id'] as num).toString(),
         title: (json['title'] ?? json['name'] ?? 'Untitled') as String,
         posterPath: json['poster_path'] as String?,
         backdropPath: json['backdrop_path'] as String?,
         overview: json['overview'] as String?,
-        releaseDate: json['release_date'] != null && json['release_date'].toString().isNotEmpty
-            ? DateTime.tryParse(json['release_date'].toString())
-            : json['first_air_date'] != null && json['first_air_date'].toString().isNotEmpty
-                ? DateTime.tryParse(json['first_air_date'].toString())
-                : null,
+        releaseDate: parsedDate,
         genres: genresList,
         voteAverage: (json['vote_average'] as num?)?.toDouble() ?? 0.0,
         popularity: (json['popularity'] as num?)?.toDouble() ?? 0.0,
-        runtime: json['runtime'] is num
-            ? (json['runtime'] as num).toInt()
-            : (json['episode_run_time'] is List && (json['episode_run_time'] as List).isNotEmpty)
-                ? ((json['episode_run_time'] as List).first as num).toInt()
-                : null,
+        runtime: runtimeValue,
         seasonsCount: json['number_of_seasons'] as int?,
         episodesCount: json['number_of_episodes'] as int?,
         tagline: json['tagline'] as String?,
-        mediaType: (json['media_type'] ?? (json['title'] != null ? 'movie' : 'tv')) as String,
+        mediaType: mediaTypeValue,
       );
-    } catch (e) {
-      print('Error parsing Movie from JSON: $e');
+
+      print('Successfully parsed movie: ${movie.title}');
+      return movie;
+    } catch (e, stackTrace) {
+      print('❌ Error parsing Movie from JSON: $e');
+      print('Stack trace: $stackTrace');
       print('JSON data: $json');
       rethrow;
     }
