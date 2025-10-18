@@ -61,6 +61,6 @@ Apache 2.0 License - [LICENSE](LICENSE).
 
 neo.movies.mail@gmail.com
 
-#Благодарность
+##Благодарность
 
 Огромная благодарность создателям проекта [LAMPAC](https://github.com/immisterio/Lampac)
