@@ -1,0 +1,76 @@
+import { ThemeProvider, type Theme } from '@react-navigation/native';
+import { Slot, usePathname } from 'expo-router';
+import React from 'react';
+import { View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { NavBar } from '@/components/nav-bar';
+import { ScreenTitle } from '@/components/screen-title';
+import { AppTamaguiProvider } from '@/components/tamagui-provider';
+import { Colors } from '@/constants/theme';
+import { AppThemeProvider, useAppTheme } from '@/hooks/use-app-theme';
+import { I18nProvider } from '@/i18n';
+import { createRootLayoutStyles } from '@/styles/root-layout.styles';
+
+export default function TabLayout() {
+  return (
+    <AppThemeProvider>
+      <I18nProvider>
+        <TabLayoutContent />
+      </I18nProvider>
+    </AppThemeProvider>
+  );
+}
+
+function TabLayoutContent() {
+  const { resolvedTheme } = useAppTheme();
+  const pathname = usePathname();
+  const isDetailsScreen = pathname.startsWith('/media/');
+  const palette = Colors[resolvedTheme];
+  const styles = createRootLayoutStyles(palette.chrome);
+  const navigationTheme: Theme = {
+    dark: resolvedTheme === 'dark',
+    colors: {
+      primary: palette.accent,
+      background: palette.background,
+      card: palette.backgroundElement,
+      text: palette.text,
+      border: palette.border,
+      notification: palette.accent,
+    },
+    fonts: {
+      regular: {
+        fontFamily: 'System',
+        fontWeight: '400',
+      },
+      medium: {
+        fontFamily: 'System',
+        fontWeight: '500',
+      },
+      bold: {
+        fontFamily: 'System',
+        fontWeight: '700',
+      },
+      heavy: {
+        fontFamily: 'System',
+        fontWeight: '800',
+      },
+    },
+  };
+
+  return (
+    <AppTamaguiProvider>
+      <ThemeProvider value={navigationTheme}>
+        <AnimatedSplashOverlay />
+        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+          <ScreenTitle />
+          <View style={styles.content}>
+            <Slot />
+          </View>
+          {!isDetailsScreen ? <NavBar /> : null}
+        </SafeAreaView>
+      </ThemeProvider>
+    </AppTamaguiProvider>
+  );
+}
