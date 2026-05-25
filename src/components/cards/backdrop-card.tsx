@@ -7,14 +7,14 @@ import { resolveBackdropPageUrl, resolveBackdropUrl, resolvePosterUrl } from '@/
 import { PopularMovie } from '@/types/api';
 import { backdropCardStyles } from '@/components/cards/backdrop-card.styles';
 
-export function BackdropCard({ item }: { item: PopularMovie }) {
+export function BackdropCard({ item, fluid = false }: { item: PopularMovie; fluid?: boolean }) {
   const backdropUri = resolveBackdropUrl(item.id, 'small');
   const backdropPageUri = resolveBackdropPageUrl(item.id, 'small');
   const posterUri = resolvePosterUrl(item.posterUrl);
   const rating = item.rating != null ? item.rating.toFixed(1) : '--';
 
   return (
-    <View style={backdropCardStyles.container}>
+    <View style={fluid ? backdropCardStyles.fluidContainer : backdropCardStyles.container}>
       <MediaImage
         primaryUri={backdropPageUri}
         fallbackUris={[backdropUri, posterUri]}

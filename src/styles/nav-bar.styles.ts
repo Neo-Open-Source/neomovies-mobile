@@ -12,7 +12,7 @@ export const navBarStyles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 0,
     paddingTop: 10,
-    paddingBottom: 0,
+    paddingBottom: 10,
     borderTopWidth: 0,
   },
   transparentBackground: {

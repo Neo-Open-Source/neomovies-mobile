@@ -10,6 +10,13 @@ export const backdropCardStyles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
   },
+  fluidContainer: {
+    width: '100%',
+    aspectRatio: 280 / 157,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    position: 'relative',
+  },
   image: {
     width: '100%',
     height: '100%',

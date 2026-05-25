@@ -3,12 +3,16 @@ import { StyleSheet } from 'react-native';
 import { Spacing } from '@/constants/theme';
 
 export const mediaCarouselSectionStyles = StyleSheet.create({
-  sectionWrap: { gap: Spacing.three },
+  sectionWrap: {
+    gap: Spacing.three,
+    marginHorizontal: -Spacing.four,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingBottom: Spacing.one,
+    paddingHorizontal: Spacing.four,
   },
   headerAction: {
     width: 32,
@@ -23,7 +27,7 @@ export const mediaCarouselSectionStyles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.3,
   },
-  row: { gap: Spacing.three, paddingRight: Spacing.three },
+  row: { gap: Spacing.three, paddingHorizontal: Spacing.four },
   overlayRow: {
     flexDirection: 'row',
     gap: Spacing.three,
