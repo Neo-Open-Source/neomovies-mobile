@@ -123,16 +123,25 @@ export default function FavoritesScreen() {
               <View style={styles.emptyIconWrap}>
                 <Heart size={24} strokeWidth={2.2} color={theme.textSecondary} />
               </View>
-              <ThemedText
-                type="small"
-                themeColor={error ? 'danger' : 'textSecondary'}
-                style={styles.emptyText}>
-                {error
-                  ? `${copy.search.loadError}: ${error}`
-                  : isAuthenticated
-                    ? copy.favorites.empty
-                    : copy.favorites.authRequired}
-              </ThemedText>
+              {error ? (
+                <ThemedText type="small" themeColor="danger" style={styles.emptyText}>
+                  {copy.search.loadError}: {error}
+                </ThemedText>
+              ) : isAuthenticated ? (
+                <ThemedText type="small" themeColor="textSecondary" style={styles.emptyText}>
+                  {copy.favorites.empty}
+                </ThemedText>
+              ) : null}
+              {!error && !isAuthenticated ? (
+                <View style={styles.authLine}>
+                  <Pressable onPress={() => router.push('/profile')}>
+                    <ThemedText style={styles.authActionText}>{copy.favorites.authAction}</ThemedText>
+                  </Pressable>
+                  <ThemedText style={styles.authSuffixText}>
+                    {copy.favorites.authRequiredSuffix}
+                  </ThemedText>
+                </View>
+              ) : null}
             </View>
           ) : null
         }

@@ -5,6 +5,7 @@ import { Radius, Spacing } from '@/constants/theme';
 type ThemePalette = {
   backgroundElement: string;
   textSecondary: string;
+  accent: string;
 };
 
 export function createFavoritesScreenStyles(theme: ThemePalette) {
@@ -31,6 +32,26 @@ export function createFavoritesScreenStyles(theme: ThemePalette) {
       maxWidth: 260,
       lineHeight: 22,
       fontSize: 15,
+      fontWeight: '500',
+    },
+    authLine: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      alignItems: 'center',
+      maxWidth: 280,
+    },
+    authActionText: {
+      color: theme.accent,
+      fontSize: 15,
+      lineHeight: 22,
+      fontWeight: '700',
+    },
+    authSuffixText: {
+      textAlign: 'center',
+      color: theme.textSecondary,
+      fontSize: 15,
+      lineHeight: 22,
       fontWeight: '500',
     },
   });

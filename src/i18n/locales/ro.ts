@@ -11,7 +11,8 @@ export const ro: Dictionary = {
   },
   favorites: {
     empty: 'Nu ai favorite încă',
-    authRequired: 'Autentifică-te pentru a vedea favoritele',
+    authAction: 'Autentifică-te',
+    authRequiredSuffix: ' pentru a vedea favoritele',
   },
   profile: {
     authTitle: 'Neo ID',

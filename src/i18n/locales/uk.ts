@@ -11,7 +11,8 @@ export const uk: Dictionary = {
   },
   favorites: {
     empty: 'В обраному поки порожньо',
-    authRequired: 'Увійдіть, щоб бачити обране',
+    authAction: 'Увійдіть',
+    authRequiredSuffix: ', щоб бачити обране',
   },
   profile: {
     authTitle: 'Neo ID',

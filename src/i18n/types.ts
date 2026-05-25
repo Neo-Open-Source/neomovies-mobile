@@ -9,7 +9,8 @@ export type Dictionary = {
   };
   favorites: {
     empty: string;
-    authRequired: string;
+    authAction: string;
+    authRequiredSuffix: string;
   };
   profile: {
     authTitle: string;

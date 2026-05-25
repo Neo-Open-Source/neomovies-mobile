@@ -11,7 +11,8 @@ export const en: Dictionary = {
   },
   favorites: {
     empty: 'No favorites yet',
-    authRequired: 'Sign in to see favorites',
+    authAction: 'Sign in',
+    authRequiredSuffix: ' to see favorites',
   },
   profile: {
     authTitle: 'Neo ID',
