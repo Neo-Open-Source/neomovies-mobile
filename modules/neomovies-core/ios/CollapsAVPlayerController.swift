@@ -3,6 +3,12 @@ import AVKit
 import Foundation
 import UIKit
 
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        return indices.contains(index) ? self[index] : nil
+    }
+}
+
 public final class CollapsAVPlayerController: NSObject {
     public static let shared = CollapsAVPlayerController()
 
@@ -14,12 +20,18 @@ public final class CollapsAVPlayerController: NSObject {
     private var playerVC: CollapsNativePlayerViewController?
     private var timeObserver: Any?
     private var currentBridge: CollapsAVAssetBridge?
+    private var hlsProxy: CollapsHLSProxyServer?
     private var playlist: [CollapsAVPlaylistItem] = []
     private var currentIndex: Int = 0
     private var selectedQualityIndex: Int = 0
     private var currentQualityOptions: [CollapsAVQualityOption] = [
         CollapsAVQualityOption(index: 0, bitrate: 0, height: nil, label: "Auto", isAuto: true)
     ]
+    private var kpId: Int?
+
+    public func setKinopoiskId(_ id: Int) {
+        kpId = id
+    }
 
     private override init() {
         super.init()
@@ -28,6 +40,7 @@ public final class CollapsAVPlayerController: NSObject {
     }
 
     deinit {
+        hlsProxy?.stop()
         if let timeObserver {
             player.removeTimeObserver(timeObserver)
         }
@@ -90,6 +103,18 @@ public final class CollapsAVPlayerController: NSObject {
                 guard let self, let vc else { return }
                 self.showQualitySheet(from: vc, sourceView: source)
             }
+            vc.onPreviousEpisodeTapped = { [weak self] in
+                guard let self, self.currentIndex > 0 else { return }
+                do {
+                    _ = try self.previousEpisode(autoplay: true)
+                } catch {}
+            }
+            vc.onNextEpisodeTapped = { [weak self] in
+                guard let self, self.currentIndex < self.playlist.count - 1 else { return }
+                do {
+                    _ = try self.nextEpisode(autoplay: true)
+                } catch {}
+            }
             vc.onWillDisappearCallback = { [weak self] in
                 self?.persistCurrentProgress()
             }
@@ -130,6 +155,8 @@ public final class CollapsAVPlayerController: NSObject {
         persistCurrentProgress()
         player.pause()
         player.replaceCurrentItem(with: nil)
+        hlsProxy?.stop()
+        hlsProxy = nil
         currentBridge = nil
         playlist = []
         currentIndex = 0
@@ -292,10 +319,25 @@ public final class CollapsAVPlayerController: NSObject {
         }
 
         let itemMeta = playlist[currentIndex]
-        // Keep original master untouched for AVPlayer stability.
-        // Runtime master rewrite can introduce subtle HLS parse incompatibilities (-12642 / -12860).
-        currentBridge = CollapsAVAssetBridge(sourceURL: url, headers: itemMeta.headers, rewrittenMaster: nil)
-        let playerItem = AVPlayerItem(asset: currentBridge!.asset)
+        hlsProxy?.stop()
+        hlsProxy = nil
+
+        let playerItem: AVPlayerItem
+        if shouldUseProxy(url: url, headers: itemMeta.headers) {
+            do {
+                let proxy = CollapsHLSProxyServer(masterURL: url, headers: itemMeta.headers)
+                let localURL = try proxy.start()
+                hlsProxy = proxy
+                currentBridge = nil
+                playerItem = AVPlayerItem(url: localURL)
+            } catch {
+                currentBridge = CollapsAVAssetBridge(sourceURL: url, headers: itemMeta.headers, rewrittenMaster: nil)
+                playerItem = AVPlayerItem(asset: currentBridge!.asset)
+            }
+        } else {
+            currentBridge = CollapsAVAssetBridge(sourceURL: url, headers: itemMeta.headers, rewrittenMaster: nil)
+            playerItem = AVPlayerItem(asset: currentBridge!.asset)
+        }
         player.replaceCurrentItem(with: playerItem)
         player.automaticallyWaitsToMinimizeStalling = true
         player.isMuted = false
@@ -318,6 +360,10 @@ public final class CollapsAVPlayerController: NSObject {
         emitState()
     }
 
+    private func shouldUseProxy(url: URL, headers: [String: String]) -> Bool {
+        !headers.isEmpty && url.path.lowercased().contains(".m3u8")
+    }
+
     private func installProgressObserver() {
         if let timeObserver {
             player.removeTimeObserver(timeObserver)
@@ -330,6 +376,11 @@ public final class CollapsAVPlayerController: NSObject {
             let state = self.snapshot()
             if let mediaId = state.mediaId {
                 CollapsPlaybackProgressStore.shared.save(mediaId: mediaId, positionSec: state.currentTimeSec)
+                
+                // Логирование сохранения прогресса
+                if let kpId = self.kpId, let currentItem = self.playlist[safe: self.currentIndex] {
+                    print("[AVPlayer] Saving progress: kpId=\(kpId), season=\(currentItem.season ?? 0), episode=\(currentItem.episode ?? 0), position=\(state.currentTimeSec)s, duration=\(state.durationSec)s")
+                }
             }
             self.onProgress?(state)
             self.refreshOverlayUI()
@@ -424,8 +475,14 @@ public final class CollapsAVPlayerController: NSObject {
     private func showAudioSheet(from controller: UIViewController, sourceView: UIView) {
         let tracks = listAudioTracks()
         let sheet = UIAlertController(title: "Audio Track", message: nil, preferredStyle: .actionSheet)
+        var usedLabels: [String: Int] = [:]
         for track in tracks {
-            let label = (track["label"] as? String) ?? "Track"
+            let baseLabel = ((track["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                ? (track["label"] as? String ?? "Track")
+                : "Track"
+            usedLabels[baseLabel, default: 0] += 1
+            let count = usedLabels[baseLabel] ?? 1
+            let label = count > 1 ? "\(baseLabel) \(count)" : baseLabel
             let index = track["index"] as? Int
             sheet.addAction(UIAlertAction(title: label, style: .default, handler: { [weak self] _ in
                 self?.selectAudioTrack(index: index)
@@ -607,7 +664,12 @@ public final class CollapsAVPlayerController: NSObject {
         let current = min(max(state.currentTimeSec, 0), duration > 0 ? duration : state.currentTimeSec)
         let item = playlist.indices.contains(currentIndex) ? playlist[currentIndex] : nil
         let title = (item?.title.isEmpty == false) ? item!.title : "NeoMovies"
-        let subtitle = "Collaps"
+        let subtitle: String
+        if let season = item?.season, let episode = item?.episode {
+            subtitle = "Season \(season), Episode \(episode)"
+        } else {
+            subtitle = "NeoMovies"
+        }
         let audioLabel = currentAudioTrackLabel()
         let qualityLabel = currentQualityOptions.first(where: { $0.index == selectedQualityIndex })?.label ?? "Auto"
         Task { @MainActor in
@@ -618,7 +680,9 @@ public final class CollapsAVPlayerController: NSObject {
                 currentTime: current,
                 duration: duration,
                 audioLabel: audioLabel,
-                qualityLabel: qualityLabel
+                qualityLabel: qualityLabel,
+                canGoPreviousEpisode: currentIndex > 0,
+                canGoNextEpisode: currentIndex < playlist.count - 1
             )
         }
     }
@@ -632,192 +696,5 @@ public final class CollapsAVPlayerController: NSObject {
             return selected.displayName
         }
         return "Audio"
-    }
-}
-
-private final class CollapsNativePlayerViewController: AVPlayerViewController {
-    var onWillDisappearCallback: (() -> Void)?
-    var onCloseTapped: (() -> Void)?
-    var onPlayPauseTapped: (() -> Void)?
-    var onSeekRelative: ((Double) -> Void)?
-    var onSliderSeek: ((Double) -> Void)?
-    var onAudioTapped: ((UIView) -> Void)?
-    var onQualityTapped: ((UIView) -> Void)?
-
-    private let dimTop = CAGradientLayer()
-    private let dimBottom = CAGradientLayer()
-    private let closeButton = UIButton(type: .system)
-    private let titleLabel = UILabel()
-    private let subtitleLabel = UILabel()
-    private let rewindButton = UIButton(type: .system)
-    private let playPauseButton = UIButton(type: .system)
-    private let forwardButton = UIButton(type: .system)
-    private let currentTimeLabel = UILabel()
-    private let durationLabel = UILabel()
-    private let progressSlider = UISlider()
-    private let audioChip = UIButton(type: .system)
-    private let qualityChip = UIButton(type: .system)
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        buildOverlay()
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        dimTop.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: 150)
-        dimBottom.frame = CGRect(x: 0, y: view.bounds.height - 220, width: view.bounds.width, height: 220)
-    }
-
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        onWillDisappearCallback?()
-    }
-
-    @MainActor
-    func updateOverlay(title: String, subtitle: String, isPlaying: Bool, currentTime: Double, duration: Double, audioLabel: String, qualityLabel: String) {
-        titleLabel.text = title
-        subtitleLabel.text = subtitle
-        playPauseButton.setImage(UIImage(systemName: isPlaying ? "pause.fill" : "play.fill"), for: .normal)
-        currentTimeLabel.text = formatTime(currentTime)
-        durationLabel.text = formatTime(duration)
-        progressSlider.minimumValue = 0
-        progressSlider.maximumValue = Float(max(duration, 0.1))
-        progressSlider.value = Float(currentTime)
-        audioChip.setTitle("  \(audioLabel)  ", for: .normal)
-        qualityChip.setTitle("  \(qualityLabel)  ", for: .normal)
-    }
-
-    private func buildOverlay() {
-        guard let overlay = contentOverlayView else { return }
-        overlay.layer.addSublayer(dimTop)
-        overlay.layer.addSublayer(dimBottom)
-        dimTop.colors = [UIColor.black.withAlphaComponent(0.72).cgColor, UIColor.clear.cgColor]
-        dimBottom.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.75).cgColor]
-
-        closeButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        closeButton.tintColor = .white
-        closeButton.backgroundColor = UIColor.white.withAlphaComponent(0.12)
-        closeButton.layer.cornerRadius = 24
-        closeButton.addAction(UIAction { [weak self] _ in self?.onCloseTapped?() }, for: .touchUpInside)
-
-        titleLabel.textColor = .white
-        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
-        titleLabel.textAlignment = .center
-        subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.75)
-        subtitleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
-        subtitleLabel.textAlignment = .center
-
-        configureCircleButton(rewindButton, symbol: "gobackward.10", size: 52)
-        rewindButton.addAction(UIAction { [weak self] _ in self?.onSeekRelative?(-10) }, for: .touchUpInside)
-        configureCircleButton(playPauseButton, symbol: "pause.fill", size: 84)
-        playPauseButton.addAction(UIAction { [weak self] _ in self?.onPlayPauseTapped?() }, for: .touchUpInside)
-        configureCircleButton(forwardButton, symbol: "goforward.10", size: 52)
-        forwardButton.addAction(UIAction { [weak self] _ in self?.onSeekRelative?(10) }, for: .touchUpInside)
-
-        currentTimeLabel.textColor = .white
-        currentTimeLabel.font = .monospacedDigitSystemFont(ofSize: 18, weight: .medium)
-        durationLabel.textColor = .white
-        durationLabel.font = .monospacedDigitSystemFont(ofSize: 18, weight: .medium)
-        durationLabel.textAlignment = .right
-
-        progressSlider.minimumTrackTintColor = .white
-        progressSlider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.22)
-        progressSlider.addAction(UIAction { [weak self] _ in
-            self?.onSliderSeek?(Double(self?.progressSlider.value ?? 0))
-        }, for: .valueChanged)
-
-        configureChip(audioChip, icon: "speaker.wave.2.fill")
-        audioChip.addAction(UIAction { [weak self] _ in
-            guard let self else { return }
-            self.onAudioTapped?(self.audioChip)
-        }, for: .touchUpInside)
-
-        configureChip(qualityChip, icon: "slider.horizontal.3")
-        qualityChip.addAction(UIAction { [weak self] _ in
-            guard let self else { return }
-            self.onQualityTapped?(self.qualityChip)
-        }, for: .touchUpInside)
-
-        let header = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
-        header.axis = .vertical
-        header.spacing = 2
-
-        let center = UIStackView(arrangedSubviews: [rewindButton, playPauseButton, forwardButton])
-        center.axis = .horizontal
-        center.alignment = .center
-        center.spacing = 26
-
-        let times = UIStackView(arrangedSubviews: [currentTimeLabel, progressSlider, durationLabel])
-        times.axis = .horizontal
-        times.alignment = .center
-        times.spacing = 14
-
-        let chips = UIStackView(arrangedSubviews: [audioChip, qualityChip])
-        chips.axis = .horizontal
-        chips.spacing = 14
-        chips.alignment = .center
-
-        [closeButton, header, center, times, chips].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            overlay.addSubview($0)
-        }
-
-        NSLayoutConstraint.activate([
-            closeButton.leadingAnchor.constraint(equalTo: overlay.leadingAnchor, constant: 28),
-            closeButton.topAnchor.constraint(equalTo: overlay.topAnchor, constant: 28),
-            closeButton.widthAnchor.constraint(equalToConstant: 48),
-            closeButton.heightAnchor.constraint(equalToConstant: 48),
-
-            header.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
-            header.topAnchor.constraint(equalTo: overlay.topAnchor, constant: 28),
-
-            center.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
-            center.centerYAnchor.constraint(equalTo: overlay.centerYAnchor, constant: 10),
-
-            times.leadingAnchor.constraint(equalTo: overlay.leadingAnchor, constant: 24),
-            times.trailingAnchor.constraint(equalTo: overlay.trailingAnchor, constant: -24),
-            times.bottomAnchor.constraint(equalTo: overlay.bottomAnchor, constant: -74),
-            currentTimeLabel.widthAnchor.constraint(equalToConstant: 90),
-            durationLabel.widthAnchor.constraint(equalToConstant: 90),
-
-            chips.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
-            chips.bottomAnchor.constraint(equalTo: overlay.bottomAnchor, constant: -26)
-        ])
-    }
-
-    private func configureCircleButton(_ button: UIButton, symbol: String, size: CGFloat) {
-        button.setImage(UIImage(systemName: symbol), for: .normal)
-        button.tintColor = .white
-        button.backgroundColor = UIColor.white.withAlphaComponent(0.14)
-        button.layer.cornerRadius = size / 2
-        button.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: size),
-            button.heightAnchor.constraint(equalToConstant: size)
-        ])
-    }
-
-    private func configureChip(_ button: UIButton, icon: String) {
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: icon)
-        config.imagePadding = 8
-        config.baseForegroundColor = .white
-        config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14)
-        button.configuration = config
-        button.backgroundColor = UIColor.white.withAlphaComponent(0.14)
-        button.layer.cornerRadius = 24
-    }
-
-    private func formatTime(_ sec: Double) -> String {
-        guard sec.isFinite else { return "0:00" }
-        let total = Int(max(0, sec))
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        if h > 0 {
-            return String(format: "%d:%02d:%02d", h, m, s)
-        }
-        return String(format: "%d:%02d", m, s)
     }
 }

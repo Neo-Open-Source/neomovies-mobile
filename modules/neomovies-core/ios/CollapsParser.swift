@@ -98,7 +98,149 @@ public class CollapsParser {
         }
         
         os_log("Movie data extracted: %@", log: logger, type: .info, data)
+        if data.isEmpty, let payloadData = extractHlsSourcePayload(from: html) {
+            let hls = payloadData["hls"] ?? ""
+            if !hls.isEmpty {
+                data["hls"] = hls
+            }
+            let dash = payloadData["dash"] ?? ""
+            if !dash.isEmpty {
+                data["dash"] = dash
+            }
+        }
+
+        if data["hls"] == nil,
+           let fallback = firstPreferredStreamURLString(in: html) {
+            data["hls"] = fallback
+        }
+
         return data.isEmpty ? nil : data
+    }
+
+    private static func firstPreferredStreamURLString(in payload: String) -> String? {
+        let patterns = [
+            #"https?:\\/\\/[^\"'\s>]+\\.m3u8[^\"'\s>]*"#,
+            #"https?:\\/\\/[^\"'\s>]+\\.mpd[^\"'\s>]*"#,
+            #"(?:\"|')((?:https?:)?//[^\"'\s>]+(?:m3u8|mpd)[^\"'\s>]*)"#
+        ]
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let range = NSRange(payload.startIndex..<payload.endIndex, in: payload)
+            guard let match = regex.firstMatch(in: payload, options: [], range: range) else { continue }
+            let targetRange = match.numberOfRanges > 1 ? match.range(at: 1) : match.range(at: 0)
+            guard let valueRange = Range(targetRange, in: payload) else { continue }
+            var value = String(payload[valueRange])
+            value = value.replacingOccurrences(of: "\\/", with: "/")
+            if value.hasPrefix("//") {
+                value = "https:" + value
+            }
+            return value
+        }
+        return nil
+    }
+
+    private static func extractHlsSourcePayload(from payload: String) -> [String: String]? {
+        let candidates = embeddedJSONObjectCandidates(in: payload)
+        for candidate in candidates {
+            guard let data = candidate.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let source = object["hlsSource"] as? [[String: Any]] else {
+                continue
+            }
+
+            var resolvedHls: String?
+            var resolvedDash: String?
+            for item in source {
+                guard let quality = item["quality"] as? [String: Any] else { continue }
+                for (_, rawValue) in quality {
+                    let values = qualityURLStrings(from: rawValue)
+                    for value in values {
+                        let decoded = value.replacingOccurrences(of: "\\/", with: "/")
+                        if resolvedHls == nil && decoded.lowercased().contains(".m3u8") {
+                            resolvedHls = decoded
+                        }
+                        if resolvedDash == nil && decoded.lowercased().contains(".mpd") {
+                            resolvedDash = decoded
+                        }
+                    }
+                }
+            }
+
+            if resolvedHls != nil || resolvedDash != nil {
+                return ["hls": resolvedHls ?? "", "dash": resolvedDash ?? ""]
+            }
+        }
+        return nil
+    }
+
+    private static func qualityURLStrings(from value: Any) -> [String] {
+        if let text = value as? String {
+            return splitURLParts(text)
+        }
+        if let nested = value as? [Any] {
+            return nested.flatMap { qualityURLStrings(from: $0) }
+        }
+        if let nestedDict = value as? [String: Any] {
+            return nestedDict.values.flatMap { qualityURLStrings(from: $0) }
+        }
+        return []
+    }
+
+    private static func splitURLParts(_ text: String) -> [String] {
+        text
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func embeddedJSONObjectCandidates(in payload: String) -> [String] {
+        var candidates = balancedJSONObjectCandidates(containing: #"\"hlsSource\""#, in: payload)
+        candidates.append(contentsOf: balancedJSONObjectCandidates(containing: "hlsSource", in: payload))
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0).inserted }
+    }
+
+    private static func balancedJSONObjectCandidates(containing marker: String, in payload: String) -> [String] {
+        var candidates: [String] = []
+        var searchStart = payload.startIndex
+        while let markerRange = payload.range(of: marker, options: [.caseInsensitive], range: searchStart..<payload.endIndex) {
+            guard let objectStart = payload[..<markerRange.lowerBound].lastIndex(of: "{"),
+                  let objectEnd = balancedObjectEnd(from: objectStart, in: payload) else {
+                searchStart = markerRange.upperBound
+                continue
+            }
+            candidates.append(String(payload[objectStart...objectEnd]))
+            searchStart = markerRange.upperBound
+        }
+        return candidates
+    }
+
+    private static func balancedObjectEnd(from start: String.Index, in payload: String) -> String.Index? {
+        var depth = 0
+        var isQuoted = false
+        var isEscaped = false
+        var index = start
+
+        while index < payload.endIndex {
+            let character = payload[index]
+            if isEscaped {
+                isEscaped = false
+            } else if character == "\\" {
+                isEscaped = true
+            } else if character == "\"" {
+                isQuoted.toggle()
+            } else if !isQuoted {
+                if character == "{" {
+                    depth += 1
+                } else if character == "}" {
+                    depth -= 1
+                    if depth == 0 { return index }
+                }
+            }
+            index = payload.index(after: index)
+        }
+        return nil
     }
     
     private static func parseSeries(seasonsJson: String, source: String) -> [String: Any] {

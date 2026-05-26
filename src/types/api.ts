@@ -31,10 +31,30 @@ export type MediaDetails = {
   duration: number;
   country: string;
   language: string;
+  ratings?: {
+    kp?: number | null;
+    tmdb?: number | null;
+    imdb?: number | null;
+  };
   genres?: Array<{
     id: string;
     name: string;
   }>;
+};
+
+export type TvEpisodeDetails = {
+  id: number;
+  name: string;
+  overview: string;
+  airDate: string;
+  seasonNumber: number;
+  episodeNumber: number;
+  stillPath?: string | null;
+  language: string;
+  ratings: {
+    tmdb?: number | null;
+    imdb?: number | null;
+  };
 };
 
 export type ApiEnvelope<T> = {

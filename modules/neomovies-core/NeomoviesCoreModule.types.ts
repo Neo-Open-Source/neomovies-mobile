@@ -66,6 +66,14 @@ export type CollapsWatchProgressSnapshot = CollapsWatchProgressRecord & {
 // Common parser functions (available on both platforms)
 export type CollapsParserModule = {
   parseCollapsCatalog(embedHtml: string): CollapsCatalog;
+  parseAllohaRuntimePayload?(payload: string, baseUrl: string, headers: Record<string, string>): {
+    videoURL?: string;
+    audioTracks?: string[];
+    audioVariants?: unknown[];
+    subtitles?: CollapsSubtitle[];
+    qualityVariants?: unknown[];
+    httpHeaders?: Record<string, string>;
+  };
   rewriteCollapsHlsMaster(master: string, voices: string[], subtitles: CollapsSubtitle[], mediaId: string): string;
   rewriteCollapsDashManifest(manifest: string, voices: string[], subtitles: CollapsSubtitle[], mediaId: string): string;
   rewriteCollapsHlsFromUrl(
@@ -85,14 +93,15 @@ export type CollapsParserModule = {
     origin?: string | null
   ): Promise<string>;
   collapsDeviceSupportsAv1?(): boolean;
-  exoPlayerLaunch?(url: string, headers?: Record<string, string>, title?: string | null): Promise<void>;
+  exoPlayerLaunch?(url: string, headers?: Record<string, string>, title?: string | null, kpId?: number | null): Promise<void>;
   exoPlayerLaunchPlaylist?(
     urls: string[],
     startIndex: number,
     headers?: Record<string, string>,
     names?: string[] | null,
     title?: string | null,
-    voiceNames?: string[] | null
+    voiceNames?: string[] | null,
+    kpId?: number | null
   ): Promise<void>;
   getCollapsWatchProgress?(
     kpId: number,

@@ -45,13 +45,16 @@ class NeomoviesCoreModule : Module() {
     Name("NeomoviesCore")
     
     // Launch native ExoPlayer activity
-    AsyncFunction("exoPlayerLaunch") { url: String, headers: Map<String, String>?, title: String? ->
+    AsyncFunction("exoPlayerLaunch") { url: String, headers: Map<String, String>?, title: String?, kpId: Int? ->
       val activity = appContext.currentActivity ?: throw Exception("No current activity")
       val intent = android.content.Intent(activity, PlayerActivity::class.java).apply {
         putExtra(PlayerActivity.EXTRA_URL, url)
         putExtra(PlayerActivity.EXTRA_TITLE, title)
         putExtra(PlayerActivity.EXTRA_USE_EXO, true)
         putExtra(PlayerActivity.EXTRA_USE_COLLAPS_HEADERS, headers != null && headers.isNotEmpty())
+        if (kpId != null) {
+          putExtra(PlayerActivity.EXTRA_KINOPOISK_ID, kpId)
+        }
         headers?.forEach { (key, value) ->
           putExtra("HEADER_$key", value)
         }
@@ -59,7 +62,7 @@ class NeomoviesCoreModule : Module() {
       activity.startActivity(intent)
     }
 
-    AsyncFunction("exoPlayerLaunchPlaylist") { urls: List<String>, startIndex: Int, headers: Map<String, String>?, names: List<String>?, title: String?, voiceNames: List<String>? ->
+    AsyncFunction("exoPlayerLaunchPlaylist") { urls: List<String>, startIndex: Int, headers: Map<String, String>?, names: List<String>?, title: String?, voiceNames: List<String>?, kpId: Int? ->
       val activity = appContext.currentActivity ?: throw Exception("No current activity")
       val intent = android.content.Intent(activity, PlayerActivity::class.java).apply {
         putStringArrayListExtra(PlayerActivity.EXTRA_URLS, ArrayList(urls))
@@ -72,6 +75,9 @@ class NeomoviesCoreModule : Module() {
         putExtra(PlayerActivity.EXTRA_START_INDEX, startIndex)
         putExtra(PlayerActivity.EXTRA_TITLE, title)
         putExtra(PlayerActivity.EXTRA_USE_EXO, true)
+        if (kpId != null) {
+          putExtra(PlayerActivity.EXTRA_KINOPOISK_ID, kpId)
+        }
         putExtra(PlayerActivity.EXTRA_USE_COLLAPS_HEADERS, headers != null && headers.isNotEmpty())
         headers?.forEach { (key, value) ->
           putExtra("HEADER_$key", value)

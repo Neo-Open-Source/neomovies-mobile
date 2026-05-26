@@ -1,6 +1,6 @@
-import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import * as Device from 'expo-device';
 
 const ExpoFileSystem = require('expo-file-system') as {
@@ -14,8 +14,7 @@ const ExpoFileSystem = require('expo-file-system') as {
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { useTheme } from '@/hooks/use-theme';
-import { useI18n } from '@/i18n';
+import { useContentSource } from '@/hooks/use-content-source';
 import { API_ORIGIN } from '@/lib/config';
 import {
   addAVPlayerEpisodeChangedListener,
@@ -29,10 +28,11 @@ import {
   CollapsEpisode,
   CollapsSeason,
   CollapsSubtitle,
+  parseAllohaRuntimePayload,
   parseCollapsCatalog,
 } from '@/native/collaps-parser';
 import CollapsParser from 'neomovies-core';
-import { getCollapsEmbedHtml } from '@/lib/neomovies-api';
+import { getProviderEmbedHtml } from '@/lib/neomovies-api';
 import { createWatchSelectorStyles } from '@/styles/watch-selector.styles';
 
 type PlayerHeaders = {
@@ -189,7 +189,7 @@ async function shouldPreferHlsForAndroidExo(
   }
 }
 
-export default function WatchSelectorScreen() {
+export default function WatchPlayerScreen() {
   const params = useLocalSearchParams<{
     id?: string;
     title?: string;
@@ -197,24 +197,13 @@ export default function WatchSelectorScreen() {
     season?: string;
     episode?: string;
   }>();
-  const { copy } = useI18n();
-  const theme = useTheme();
-  const styles = createWatchSelectorStyles(theme);
+  const { source } = useContentSource();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<CollapsCatalog | null>(null);
 
   const initialSeason = Number(params.season ?? '1') || 1;
   const initialEpisode = Number(params.episode ?? '1') || 1;
-
-  const [selectedSeason, setSelectedSeason] = useState(initialSeason);
-  const [selectedEpisode, setSelectedEpisode] = useState(initialEpisode);
-  const [nativeProgressSec, setNativeProgressSec] = useState(0);
-  const [playbackHeaders, setPlaybackHeaders] = useState<PlayerHeaders>({
-    Referer: 'https://kinokrad.my/',
-    Origin: 'https://kinokrad.my',
-  });
 
   useEffect(() => {
     let cancelled = false;
@@ -223,36 +212,101 @@ export default function WatchSelectorScreen() {
 
     void (async () => {
       try {
-        let embedHtml = typeof params.embed_html === 'string' ? decodeURIComponent(params.embed_html) : '';
-        let nextHeaders: PlayerHeaders = {
-          Referer: API_ORIGIN.endsWith('/') ? API_ORIGIN : `${API_ORIGIN}/`,
-          Origin: API_ORIGIN,
-        };
-        if (!embedHtml.trim()) {
-          const mediaId = params.id ?? '';
-          if (!mediaId) {
-            throw new Error('Missing media id for Collaps player');
-          }
-          const payload = await getCollapsEmbedHtml(mediaId, initialSeason, initialEpisode);
-          embedHtml = payload.embedHtml;
-          nextHeaders = {
-            Referer: payload.embedReferer,
-            Origin: payload.embedOrigin,
-          };
+        const mediaId = params.id ?? '';
+        if (!mediaId) {
+          throw new Error('Missing media id');
         }
-        const next = await parseCollapsCatalog(embedHtml);
-        console.log('[CollapsNative] parsed catalog', {
-          kind: next.kind,
-          movieVoices: next.kind === 'movie' ? next.playlist.voiceovers.length : undefined,
-          movieVoicesPreview: next.kind === 'movie' ? next.playlist.voiceovers.slice(0, 6) : undefined,
-          seasons: next.kind === 'series' ? next.seasons.length : undefined,
-        });
+
+        const payload = await getProviderEmbedHtml(mediaId, source, initialSeason, initialEpisode);
+        const embedHtml = payload.embedHtml;
+        const playbackHeaders: PlayerHeaders = {
+          Referer: payload.embedReferer,
+          Origin: payload.embedOrigin,
+        };
+        const catalog =
+          source === 'alloha'
+            ? (() => {
+                const parsed = parseAllohaRuntimePayload(embedHtml, playbackHeaders.Origin, playbackHeaders);
+                const primaryUrl = parsed.videoURL ?? '';
+                const subtitles = parsed.subtitles ?? [];
+                if (!primaryUrl) {
+                  return {
+                    kind: 'movie' as const,
+                    source: 'alloha',
+                    playlist: {
+                      primaryUrl: '',
+                      hlsUrl: null,
+                      dashUrl: null,
+                      voiceovers: [],
+                      subtitles: [],
+                    },
+                  };
+                }
+                if (params.season || params.episode) {
+                  return {
+                    kind: 'series' as const,
+                    source: 'alloha',
+                    seasons: [
+                      {
+                        season: initialSeason,
+                        title: `Season ${initialSeason}`,
+                        episodes: [
+                          {
+                            season: initialSeason,
+                            episode: initialEpisode,
+                            title: `Episode ${initialEpisode}`,
+                            playlist: {
+                              primaryUrl,
+                              hlsUrl: primaryUrl.includes('.m3u8') ? primaryUrl : null,
+                              dashUrl: primaryUrl.includes('.mpd') ? primaryUrl : null,
+                              voiceovers: [],
+                              subtitles,
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                  };
+                }
+                return {
+                  kind: 'movie' as const,
+                  source: 'alloha',
+                  playlist: {
+                    primaryUrl,
+                    hlsUrl: primaryUrl.includes('.m3u8') ? primaryUrl : null,
+                    dashUrl: primaryUrl.includes('.mpd') ? primaryUrl : null,
+                    voiceovers: [],
+                    subtitles,
+                  },
+                };
+              })()
+            : await parseCollapsCatalog(embedHtml);
+
         if (cancelled) return;
-        setCatalog(next);
-        setPlaybackHeaders(nextHeaders);
+
+        console.log('[WatchScreen] Launching player', {
+          kind: catalog.kind,
+          id: params.id,
+          title: params.title,
+          season: initialSeason,
+          episode: initialEpisode,
+        });
+
+        // Автоматически запускаем плеер
+        if (catalog.kind === 'movie') {
+          await launchMoviePlayer(catalog, playbackHeaders, params.title ?? null, params.id ?? 'movie');
+        } else if (catalog.kind === 'series') {
+          await launchSeriesPlayer(catalog, playbackHeaders, params.title ?? null, params.id ?? 'series', initialSeason, initialEpisode);
+        }
+
+        console.log('[WatchScreen] Player launched, navigating back');
+
+        // Возвращаемся назад после запуска плеера
+        if (!cancelled && router.canGoBack()) {
+          router.back();
+        }
       } catch (reason) {
         if (cancelled) return;
-        setCatalog(null);
         setError(reason instanceof Error ? reason.message : 'Request failed');
       } finally {
         if (!cancelled) setLoading(false);
@@ -262,240 +316,119 @@ export default function WatchSelectorScreen() {
     return () => {
       cancelled = true;
     };
-  }, [params.embed_html, params.id, initialSeason, initialEpisode]);
+  }, [params.id, params.season, params.episode, initialSeason, initialEpisode, source, params.title]);
 
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    
-    const progressSub = addAVPlayerProgressListener((state) => {
-      setNativeProgressSec(state.currentTimeSec);
-    });
-    const episodeSub = addAVPlayerEpisodeChangedListener((state) => {
-      if (typeof state.season === 'number') setSelectedSeason(state.season);
-      if (typeof state.episode === 'number') setSelectedEpisode(state.episode);
-    });
-    return () => {
-      progressSub.remove();
-      episodeSub.remove();
-    };
-  }, []);
 
-  const currentSeries = catalog?.kind === 'series' ? catalog : null;
+  return (
+    <ThemedView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+      {loading ? (
+        <ActivityIndicator size="large" />
+      ) : error ? (
+        <ThemedText style={{ color: 'red', padding: 20, textAlign: 'center' }}>{error}</ThemedText>
+      ) : null}
+    </ThemedView>
+  );
+}
 
-  const activeSeason = useMemo(() => {
-    if (!currentSeries) return null;
-    return findSeasonByNumber(currentSeries.seasons, selectedSeason);
-  }, [currentSeries, selectedSeason]);
+async function launchMoviePlayer(
+  catalog: CollapsCatalog & { kind: 'movie' },
+  playbackHeaders: PlayerHeaders,
+  title: string | null,
+  mediaId: string
+) {
+  if (Platform.OS === 'ios') {
+    const url = catalog.playlist.hlsUrl ?? catalog.playlist.dashUrl ?? catalog.playlist.primaryUrl;
+    if (!url) return;
+    await avPlayerConfigurePlaylist(
+      [
+        {
+          mediaId: mediaId ?? url,
+          title: title ?? '',
+          url,
+          headers: {
+            Referer: playbackHeaders.Referer,
+            Origin: playbackHeaders.Origin,
+          },
+          voiceovers: catalog.playlist.voiceovers,
+          subtitles: catalog.playlist.subtitles,
+        },
+      ],
+      0,
+      true
+    );
+    await avPlayerPresentNativeUI();
+    return;
+  }
 
-  const activeEpisode = useMemo(() => {
-    if (!activeSeason) return null;
-    return findEpisodeByNumber(activeSeason.episodes, selectedEpisode);
-  }, [activeSeason, selectedEpisode]);
+  // Android ExoPlayer
+  const hlsUrl = catalog.playlist.hlsUrl;
+  const dashUrl = catalog.playlist.dashUrl;
+  const primaryUrl = catalog.playlist.primaryUrl;
+  const preferHls = await shouldPreferHlsForAndroidExo(hlsUrl, dashUrl, playbackHeaders);
 
-  useEffect(() => {
-    if (!activeSeason) return;
-    const fallbackEpisode = activeSeason.episodes[0]?.episode;
-    if (!activeSeason.episodes.some((item) => item.episode === selectedEpisode) && fallbackEpisode) {
-      setSelectedEpisode(fallbackEpisode);
-    }
-  }, [activeSeason, selectedEpisode]);
+  let finalUrl: string;
+  const mediaFileId = normalizeMediaFileId(mediaId, 'movie');
 
-  const openExoPlayer = async () => {
-    if (!catalog) return;
-    if (catalog.kind === 'movie') {
-      const hlsUrl = catalog.playlist.hlsUrl;
-      const dashUrl = catalog.playlist.dashUrl;
-      const primaryUrl = catalog.playlist.primaryUrl;
-      const preferHls = await shouldPreferHlsForAndroidExo(hlsUrl, dashUrl, playbackHeaders);
-
-      let finalUrl: string;
-      const mediaFileId = normalizeMediaFileId(params.id, 'movie');
-
-      if (preferHls && hlsUrl) {
-        finalUrl = await rewriteHlsToLocalOrFallback(
-          hlsUrl,
-          catalog.playlist.voiceovers,
-          catalog.playlist.subtitles,
-          mediaFileId,
-          playbackHeaders
-        );
-      } else if (dashUrl) {
-        const dashLocalOrNull = await rewriteDashToLocalOrFallback(
-          dashUrl,
-          catalog.playlist.voiceovers,
-          catalog.playlist.subtitles,
-          mediaFileId,
-          playbackHeaders
-        );
-        if (dashLocalOrNull) {
-          finalUrl = dashLocalOrNull;
-        } else if (hlsUrl) {
-          finalUrl = await rewriteHlsToLocalOrFallback(
-            hlsUrl,
-            catalog.playlist.voiceovers,
-            catalog.playlist.subtitles,
-            mediaFileId,
-            playbackHeaders
-          );
-        } else {
-          finalUrl = dashUrl;
-        }
-      } else {
-        finalUrl = primaryUrl;
-      }
-      
-      if (!finalUrl) return;
-
-      console.log('[CollapsNative] openExoPlayer:selected', {
-        mediaId: mediaFileId,
-        preferHls,
-        voicesCount: catalog.playlist.voiceovers.length,
-        voicesPreview: catalog.playlist.voiceovers.slice(0, 6),
-        hlsUrl,
-        dashUrl,
-        finalUrl,
-      });
-      // Pass file:// URI with headers
-      await CollapsParser.exoPlayerLaunch?.(finalUrl, playbackHeaders, params.title ?? null);
-    }
-  };
-
-  const openExoPlayerSeriesEpisode = async () => {
-    if (!currentSeries || !activeEpisode) return;
-    const hlsUrl = activeEpisode.playlist.hlsUrl;
-    const dashUrl = activeEpisode.playlist.dashUrl;
-    const primaryUrl = activeEpisode.playlist.primaryUrl;
-    const seriesBaseId = normalizeMediaFileId(params.id, 'series');
-    const mediaId = `${seriesBaseId}_${activeEpisode.season}_${activeEpisode.episode}`;
-    const preferHls = await shouldPreferHlsForAndroidExo(hlsUrl, dashUrl, playbackHeaders);
-
-    let finalUrl: string;
-
-    if (preferHls && hlsUrl) {
+  if (preferHls && hlsUrl) {
+    finalUrl = await rewriteHlsToLocalOrFallback(
+      hlsUrl,
+      catalog.playlist.voiceovers,
+      catalog.playlist.subtitles,
+      mediaFileId,
+      playbackHeaders
+    );
+  } else if (dashUrl) {
+    const dashLocalOrNull = await rewriteDashToLocalOrFallback(
+      dashUrl,
+      catalog.playlist.voiceovers,
+      catalog.playlist.subtitles,
+      mediaFileId,
+      playbackHeaders
+    );
+    if (dashLocalOrNull) {
+      finalUrl = dashLocalOrNull;
+    } else if (hlsUrl) {
       finalUrl = await rewriteHlsToLocalOrFallback(
         hlsUrl,
-        activeEpisode.playlist.voiceovers,
-        activeEpisode.playlist.subtitles,
-        mediaId,
+        catalog.playlist.voiceovers,
+        catalog.playlist.subtitles,
+        mediaFileId,
         playbackHeaders
       );
-    } else if (dashUrl) {
-      const dashLocalOrNull = await rewriteDashToLocalOrFallback(
-        dashUrl,
-        activeEpisode.playlist.voiceovers,
-        activeEpisode.playlist.subtitles,
-        mediaId,
-        playbackHeaders
-      );
-      if (dashLocalOrNull) {
-        finalUrl = dashLocalOrNull;
-      } else if (hlsUrl) {
-        finalUrl = await rewriteHlsToLocalOrFallback(
-          hlsUrl,
-          activeEpisode.playlist.voiceovers,
-          activeEpisode.playlist.subtitles,
-          mediaId,
-          playbackHeaders
-        );
-      } else {
-        finalUrl = dashUrl;
-      }
     } else {
-      finalUrl = primaryUrl;
+      finalUrl = dashUrl;
     }
+  } else {
+    finalUrl = primaryUrl;
+  }
 
-    if (!finalUrl) return;
-    console.log('[CollapsNative] openExoPlayerSeriesEpisode:selected', {
-      mediaId,
-      preferHls,
-      voicesCount: activeEpisode.playlist.voiceovers.length,
-      voicesPreview: activeEpisode.playlist.voiceovers.slice(0, 6),
-      hlsUrl,
-      dashUrl,
-      finalUrl,
-    });
-    const seasonPlaylist = currentSeries.seasons
-      .sort((a, b) => a.season - b.season)
-      .flatMap((season) =>
-        season.episodes
-          .sort((a, b) => a.episode - b.episode)
-          .map((episode) => ({
-            season: season.season,
-            episode: episode.episode,
-            url: preferHls
-              ? (episode.playlist.hlsUrl ?? episode.playlist.dashUrl ?? episode.playlist.primaryUrl)
-              : (episode.playlist.dashUrl ?? episode.playlist.hlsUrl ?? episode.playlist.primaryUrl),
-            name: `${params.title ?? 'Series'}_S${String(season.season).padStart(2, '0')}E${String(episode.episode).padStart(2, '0')}`,
-          }))
-          .filter((item) => Boolean(item.url))
-      );
+  if (!finalUrl) return;
 
-    const startIndex = Math.max(
-      0,
-      seasonPlaylist.findIndex((item) => item.season === activeEpisode.season && item.episode === activeEpisode.episode)
-    );
+  const kpId = Number(mediaId.replace(/^kp_/, ''));
+  await CollapsParser.exoPlayerLaunch?.(finalUrl, playbackHeaders, title, Number.isFinite(kpId) ? kpId : null);
+}
 
-    console.log('[CollapsNative] exoPlayerLaunchPlaylist payload', {
-      count: seasonPlaylist.length,
-      startIndex,
-      firstNames: seasonPlaylist.slice(0, 5).map((item) => item.name),
-    });
+async function launchSeriesPlayer(
+  catalog: CollapsCatalog & { kind: 'series' },
+  playbackHeaders: PlayerHeaders,
+  title: string | null,
+  mediaId: string,
+  initialSeason: number,
+  initialEpisode: number
+) {
+  const activeSeason = findSeasonByNumber(catalog.seasons, initialSeason);
+  if (!activeSeason) return;
 
-    if (CollapsParser.exoPlayerLaunchPlaylist && seasonPlaylist.length > 0) {
-      await CollapsParser.exoPlayerLaunchPlaylist(
-        seasonPlaylist.map((item) => item.url),
-        startIndex,
-        playbackHeaders,
-        seasonPlaylist.map((item) => item.name),
-        params.title ?? null,
-        activeEpisode.playlist.voiceovers
-      );
-      return;
-    }
+  const activeEpisode = findEpisodeByNumber(activeSeason.episodes, initialEpisode);
+  if (!activeEpisode) return;
 
-    await CollapsParser.exoPlayerLaunch?.(
-      finalUrl,
-      playbackHeaders,
-      `${params.title ?? 'Series'} S${String(activeEpisode.season).padStart(2, '0')}E${String(activeEpisode.episode).padStart(2, '0')}`
-    );
-  };
-
-  const openNativePlayer = async () => {
-    if (Platform.OS !== 'ios') {
-      console.warn('AVPlayer is only available on iOS');
-      return;
-    }
-    if (!catalog) return;
-    if (catalog.kind === 'movie') {
-      const url = catalog.playlist.hlsUrl ?? catalog.playlist.dashUrl ?? catalog.playlist.primaryUrl;
-      if (!url) return;
-      await avPlayerConfigurePlaylist(
-        [
-          {
-            mediaId: params.id ?? url,
-            title: params.title ?? '',
-            url,
-            headers: {
-              Referer: playbackHeaders.Referer,
-              Origin: playbackHeaders.Origin,
-            },
-            voiceovers: catalog.playlist.voiceovers,
-            subtitles: catalog.playlist.subtitles,
-          },
-        ],
-        0,
-        true
-      );
-      await avPlayerPresentNativeUI();
-      return;
-    }
-
+  if (Platform.OS === 'ios') {
     const playlistItems = catalog.seasons
       .flatMap((season) =>
         season.episodes.map((episode) => ({
-          mediaId: `${params.id ?? 'series'}_s${season.season}_e${episode.episode}`,
-          title: `${params.title ?? 'Series'} S${season.season}E${episode.episode}`,
-          url: episode.playlist.hlsUrl ?? episode.playlist.dashUrl ?? episode.playlist.primaryUrl,
+          mediaId: `${mediaId}_s${season.season}_e${episode.episode}`,
+          title: title ?? 'Series',
+          url: episode.playlist.primaryUrl || episode.playlist.hlsUrl || episode.playlist.dashUrl,
           headers: {
             Referer: playbackHeaders.Referer,
             Origin: playbackHeaders.Origin,
@@ -510,148 +443,64 @@ export default function WatchSelectorScreen() {
 
     const startIndex = Math.max(
       0,
-      playlistItems.findIndex((item) => item.season === selectedSeason && item.episode === selectedEpisode)
+      playlistItems.findIndex((item) => item.season === initialSeason && item.episode === initialEpisode)
     );
 
-    await avPlayerConfigurePlaylist(playlistItems, startIndex, true);
+    const kpId = Number(mediaId.replace(/^kp_/, ''));
+    
+    console.log('[iOS Player] Configuring playlist', {
+      totalItems: playlistItems.length,
+      startIndex,
+      kpId: Number.isFinite(kpId) ? kpId : null,
+      firstUrl: playlistItems[0]?.url?.substring(0, 100),
+      targetEpisode: `S${initialSeason}E${initialEpisode}`,
+    });
+    
+    await avPlayerConfigurePlaylist(playlistItems, startIndex, true, Number.isFinite(kpId) ? kpId : null);
     await avPlayerPresentNativeUI();
-  };
+    return;
+  }
 
-  const switchEpisodeNative = async (season: number, episode: number) => {
-    if (!currentSeries) return;
-    const flattened = currentSeries.seasons.flatMap((s) => s.episodes.map((e) => ({ season: s.season, episode: e.episode })));
-    const index = flattened.findIndex((item) => item.season === season && item.episode === episode);
-    if (index >= 0) {
-      await avPlayerSelectEpisode(index, true);
-      await avPlayerPresentNativeUI();
-    }
-  };
+  // Android ExoPlayer
+  const hlsUrl = activeEpisode.playlist.hlsUrl;
+  const dashUrl = activeEpisode.playlist.dashUrl;
+  const primaryUrl = activeEpisode.playlist.primaryUrl;
+  const seriesBaseId = normalizeMediaFileId(mediaId, 'series');
+  const episodeMediaId = `${seriesBaseId}_${activeEpisode.season}_${activeEpisode.episode}`;
+  const preferHls = await shouldPreferHlsForAndroidExo(hlsUrl, dashUrl, playbackHeaders);
 
-  return (
-    <ThemedView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {loading ? (
-          <ThemedText themeColor="textSecondary">{copy.home.loading}</ThemedText>
-        ) : null}
+  const seasonPlaylist = catalog.seasons
+    .sort((a, b) => a.season - b.season)
+    .flatMap((season) =>
+      season.episodes
+        .sort((a, b) => a.episode - b.episode)
+        .map((episode) => ({
+          season: season.season,
+          episode: episode.episode,
+          url: preferHls
+            ? (episode.playlist.hlsUrl ?? episode.playlist.dashUrl ?? episode.playlist.primaryUrl)
+            : (episode.playlist.dashUrl ?? episode.playlist.hlsUrl ?? episode.playlist.primaryUrl),
+          name: `${title ?? 'Series'}_S${String(season.season).padStart(2, '0')}E${String(episode.episode).padStart(2, '0')}`,
+        }))
+        .filter((item) => Boolean(item.url))
+    );
 
-        {!loading && error ? (
-          <View style={styles.card}>
-            <ThemedText themeColor="danger" style={styles.title}>
-              {copy.search.loadError}
-            </ThemedText>
-            <ThemedText style={styles.subtitle}>{error}</ThemedText>
-            <ThemedText style={styles.subtitle}>{copy.watchSelector.missingPayload}</ThemedText>
-          </View>
-        ) : null}
-
-        {!loading && !error && catalog?.kind === 'movie' ? (
-          <View style={styles.card}>
-            <ThemedText style={styles.title}>{copy.media.movie}</ThemedText>
-            <ThemedText style={styles.subtitle}>{params.title ?? ''}</ThemedText>
-
-            <View style={styles.urlBlock}>
-              <ThemedText type="small" style={styles.sectionTitle}>{copy.watchSelector.primary}</ThemedText>
-              <ThemedText type="small">{catalog.playlist.primaryUrl}</ThemedText>
-            </View>
-            {Platform.OS === 'ios' && (
-              <Pressable style={styles.episodeButtonActive} onPress={() => void openNativePlayer()}>
-                <ThemedText type="small">Play Native (AVPlayer)</ThemedText>
-              </Pressable>
-            )}
-            {Platform.OS === 'android' && (
-              <Pressable style={styles.episodeButtonActive} onPress={() => void openExoPlayer()}>
-                <ThemedText type="small">Play Native (ExoPlayer)</ThemedText>
-              </Pressable>
-            )}
-
-            {catalog.playlist.hlsUrl ? (
-              <View style={styles.urlBlock}>
-                <ThemedText type="small" style={styles.sectionTitle}>HLS (m3u8)</ThemedText>
-                <ThemedText type="small">{catalog.playlist.hlsUrl}</ThemedText>
-              </View>
-            ) : null}
-
-            {catalog.playlist.dashUrl ? (
-              <View style={styles.urlBlock}>
-                <ThemedText type="small" style={styles.sectionTitle}>DASH (mpd)</ThemedText>
-                <ThemedText type="small">{catalog.playlist.dashUrl}</ThemedText>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
-        {!loading && !error && currentSeries ? (
-          <View style={styles.card}>
-            <ThemedText style={styles.title}>{copy.media.tv}</ThemedText>
-            <ThemedText style={styles.subtitle}>{params.title ?? ''}</ThemedText>
-
-            <ThemedText style={styles.sectionTitle}>{copy.watchSelector.seasons}</ThemedText>
-            <View style={styles.pillRow}>
-              {currentSeries.seasons.map((season) => {
-                const active = season.season === (activeSeason?.season ?? selectedSeason);
-                return (
-                  <Pressable
-                    key={`season-${season.season}`}
-                    style={[styles.seasonButton, active ? styles.seasonButtonActive : null]}
-                    onPress={() => setSelectedSeason(season.season)}>
-                    <ThemedText type="small">S{season.season}</ThemedText>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <ThemedText style={styles.sectionTitle}>{copy.watchSelector.episodes}</ThemedText>
-            <View style={styles.pillRow}>
-              {activeSeason?.episodes.map((episode) => {
-                const active = episode.episode === (activeEpisode?.episode ?? selectedEpisode);
-                return (
-                  <Pressable
-                    key={`episode-${episode.season}-${episode.episode}`}
-                    style={[styles.episodeButton, active ? styles.episodeButtonActive : null]}
-                    onPress={() => {
-                      setSelectedEpisode(episode.episode);
-                      if (Platform.OS === 'ios') {
-                        void switchEpisodeNative(episode.season, episode.episode);
-                      }
-                    }}>
-                    <ThemedText type="small">E{episode.episode}</ThemedText>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {activeEpisode ? (
-              <>
-                {Platform.OS === 'ios' && (
-                  <Pressable style={styles.episodeButtonActive} onPress={() => void openNativePlayer()}>
-                    <ThemedText type="small">Play Native (AVPlayer)</ThemedText>
-                  </Pressable>
-                )}
-                {Platform.OS === 'android' && (
-                  <Pressable style={styles.episodeButtonActive} onPress={() => void openExoPlayerSeriesEpisode()}>
-                    <ThemedText type="small">Play Native (ExoPlayer)</ThemedText>
-                  </Pressable>
-                )}
-                <View style={styles.urlBlock}>
-                  <ThemedText type="small" style={styles.sectionTitle}>{copy.watchSelector.primary}</ThemedText>
-                  <ThemedText type="small">{activeEpisode.playlist.primaryUrl}</ThemedText>
-                </View>
-                <View style={styles.urlBlock}>
-                  <ThemedText type="small" style={styles.sectionTitle}>Native progress</ThemedText>
-                  <ThemedText type="small">{Math.floor(nativeProgressSec)}s</ThemedText>
-                </View>
-
-                {activeEpisode.playlist.hlsUrl ? (
-                  <View style={styles.urlBlock}>
-                    <ThemedText type="small" style={styles.sectionTitle}>HLS (m3u8)</ThemedText>
-                    <ThemedText type="small">{activeEpisode.playlist.hlsUrl}</ThemedText>
-                  </View>
-                ) : null}
-              </>
-            ) : null}
-          </View>
-        ) : null}
-      </ScrollView>
-    </ThemedView>
+  const startIndex = Math.max(
+    0,
+    seasonPlaylist.findIndex((item) => item.season === activeEpisode.season && item.episode === activeEpisode.episode)
   );
+
+  const kpId = Number(mediaId.replace(/^kp_/, ''));
+  if (CollapsParser.exoPlayerLaunchPlaylist && seasonPlaylist.length > 0) {
+    await CollapsParser.exoPlayerLaunchPlaylist(
+      seasonPlaylist.map((item) => item.url),
+      startIndex,
+      playbackHeaders,
+      seasonPlaylist.map((item) => item.name),
+      title,
+      activeEpisode.playlist.voiceovers,
+      Number.isFinite(kpId) ? kpId : null
+    );
+  }
 }
+

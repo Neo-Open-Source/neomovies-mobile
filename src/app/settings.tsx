@@ -6,6 +6,7 @@ import { ListRowItem } from '@/components/list-row-item';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useAppTheme } from '@/hooks/use-app-theme';
+import { useContentSource } from '@/hooks/use-content-source';
 import { useTheme } from '@/hooks/use-theme';
 import { useI18n } from '@/i18n';
 import { createSettingsScreenStyles } from '@/styles/settings-screen.styles';
@@ -24,7 +25,9 @@ export default function SettingsScreen() {
   const { resolvedTheme, toggleTheme } = useAppTheme();
   const styles = createSettingsScreenStyles(theme);
   const { copy, locale } = useI18n();
+  const { source } = useContentSource();
   const isDarkTheme = resolvedTheme === 'dark';
+  const sourceLabel = source === 'alloha' ? copy.settings.sourceAlternativeTitle : copy.settings.sourceDefaultTitle;
 
   return (
     <ThemedView style={styles.container}>
@@ -34,7 +37,7 @@ export default function SettingsScreen() {
 
           <ListRowItem
             title={copy.settings.source}
-            value={copy.settings.defaultSource}
+            value={sourceLabel}
             onPress={() => router.push('/settings/source')}
             showChevron
             leftAccessory={

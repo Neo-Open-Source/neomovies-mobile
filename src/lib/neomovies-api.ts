@@ -1,5 +1,5 @@
 import { API_BASE_URL, API_ORIGIN } from '@/lib/config';
-import { httpGet } from '@/lib/http';
+import { httpGet, httpGetText } from '@/lib/http';
 import { getStoredTokens, refreshAccessToken } from '@/lib/neoid-auth';
 import {
   ApiEnvelope,
@@ -7,6 +7,7 @@ import {
   MediaDetails,
   PopularMoviesResponse,
   SearchResponse,
+  TvEpisodeDetails,
   TopRatedResponse,
 } from '@/types/api';
 
@@ -99,10 +100,11 @@ export async function getMediaDetails(mediaId: string) {
   return unwrapEnvelope(response);
 }
 
-function extractIframeSource(html: string): string | null {
-  const match = html.match(/<iframe[^>]+src=["']([^"']+)["']/i);
-  if (!match?.[1]) return null;
-  return match[1];
+export async function getTvEpisodeDetails(mediaId: string, season: number, episode: number) {
+  const rawId = mediaId.replace(/^kp_/, '');
+  const url = `${API_BASE_URL}/tv/${rawId}/season/${season}/episode/${episode}`;
+  const response = await httpGet<ApiEnvelope<TvEpisodeDetails> | TvEpisodeDetails>(url);
+  return unwrapEnvelope(response);
 }
 
 export type CollapsEmbedPayload = {
@@ -110,6 +112,56 @@ export type CollapsEmbedPayload = {
   embedOrigin: string;
   embedReferer: string;
 };
+
+function extractIframeSource(html: string): string | null {
+  const match = html.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+  if (!match?.[1]) return null;
+  return match[1];
+}
+
+export async function getProviderEmbedHtml(
+  mediaId: string,
+  provider: 'collaps' | 'alloha',
+  season?: number,
+  episode?: number
+): Promise<CollapsEmbedPayload> {
+  const rawId = mediaId.replace(/^kp_/, '');
+  const qs = new URLSearchParams();
+  if (season) qs.set('season', String(season));
+  if (episode) qs.set('episode', String(episode));
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  const playerUrl = `${API_BASE_URL}/players/${provider}/kp/${rawId}${suffix}`;
+  const wrapperHtml = await httpGetText(playerUrl, { headers: { Accept: 'text/html' } });
+
+  const iframeSource = extractIframeSource(wrapperHtml);
+  if (!iframeSource) {
+    return {
+      embedHtml: wrapperHtml,
+      embedOrigin: API_ORIGIN,
+      embedReferer: API_ORIGIN.endsWith('/') ? API_ORIGIN : `${API_ORIGIN}/`,
+    };
+  }
+
+  const iframeResponse = await fetch(iframeSource, {
+    method: 'GET',
+    headers: {
+      Accept: 'text/html,application/xhtml+xml',
+      Referer: API_ORIGIN.endsWith('/') ? API_ORIGIN : `${API_ORIGIN}/`,
+      Origin: API_ORIGIN,
+    },
+  });
+  const embedHtml = await iframeResponse.text();
+  if (!iframeResponse.ok) {
+    throw new Error(`HTTP ${iframeResponse.status}: ${embedHtml || 'Failed to load provider embed HTML'}`);
+  }
+
+  const iframeUrl = new URL(iframeSource);
+  return {
+    embedHtml,
+    embedOrigin: iframeUrl.origin,
+    embedReferer: iframeUrl.origin.endsWith('/') ? `${iframeUrl.origin}/` : `${iframeUrl.origin}/`,
+  };
+}
 
 export async function getCollapsEmbedHtml(mediaId: string, season?: number, episode?: number): Promise<CollapsEmbedPayload> {
   const rawId = mediaId.replace(/^kp_/, '');
@@ -185,4 +237,15 @@ export function resolveLogoUrl(movieId?: string | null, size: 'w500' | 'original
   if (!movieId) return null;
   const rawId = movieId.replace(/^kp_/, '');
   return `${API_BASE_URL}/images/logos/${rawId}/${size}`;
+}
+
+export function resolveEpisodeStillUrl(
+  movieId?: string | null,
+  season?: number,
+  episode?: number,
+  size: 'small' | 'large' = 'large'
+) {
+  if (!movieId || !season || !episode) return null;
+  const rawId = movieId.replace(/^kp_/, '');
+  return `${API_BASE_URL}/images/screens/${rawId}/${season}/${episode}/${size}`;
 }

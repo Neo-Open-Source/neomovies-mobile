@@ -1,25 +1,22 @@
 import { Image } from 'expo-image';
 import { Download, Play } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
 import { MediaImage } from '@/components/cards/media-image';
+import { RatingsRow } from '@/components/media/ratings-row';
+import { SeriesEpisodesSection } from '@/components/media/series-episodes-section';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useMediaDetails } from '@/hooks/use-media-details';
+import { useSeriesDetails } from '@/hooks/use-series-details';
 import { useTheme } from '@/hooks/use-theme';
 import { useI18n } from '@/i18n';
+import { addFavorite, checkFavorite, removeFavorite, resolveEpisodeStillUrl, resolveBackdropUrl, resolveLogoUrl, resolvePosterUrl } from '@/lib/neomovies-api';
 import { getStoredTokens } from '@/lib/neoid-auth';
-import {
-  addFavorite,
-  checkFavorite,
-  removeFavorite,
-  resolveBackdropUrl,
-  resolveLogoUrl,
-  resolvePosterUrl,
-} from '@/lib/neomovies-api';
 import { resetMediaFavoriteHeader, setMediaFavoriteHeader } from '@/lib/media-favorite-header';
+import { getCollapsWatchProgress } from '@/native/collaps-parser';
 import { createMediaDetailsStyles } from '@/styles/media-details.styles';
 
 export default function MediaDetailsScreen() {
@@ -36,27 +33,37 @@ export default function MediaDetailsScreen() {
   const [favoriteStatusReady, setFavoriteStatusReady] = useState(false);
   const favoriteCheckVersionRef = useRef(0);
 
-  const backdropUri = useMemo(
-    () => (details ? resolveBackdropUrl(details.id, 'large') : null),
-    [details]
-  );
-  const posterUri = useMemo(
-    () => (details ? resolvePosterUrl(details.posterUrl) : null),
-    [details]
-  );
-  const logoUri = useMemo(
-    () => (details ? resolveLogoUrl(details.id, 'w500') : null),
-    [details]
-  );
+  const backdropUri = useMemo(() => (details ? resolveBackdropUrl(details.id, 'large') : null), [details]);
+  const posterUri = useMemo(() => (details ? resolvePosterUrl(details.posterUrl) : null), [details]);
+  const logoUri = useMemo(() => (details ? resolveLogoUrl(details.id, 'w500') : null), [details]);
+
+  const {
+    seriesCatalog,
+    selectedSeasonData,
+    setSelectedSeason,
+    isSeasonPickerExpanded,
+    setSeasonPickerExpanded,
+    episodeMetaMap,
+    firstEpisode,
+    mediaIdNumber,
+    canReadProgress,
+    seriesProgress,
+    sortedEpisodes,
+  } = useSeriesDetails(details);
+
+  const movieProgress =
+    details?.type === 'movie' && canReadProgress ? getCollapsWatchProgress(mediaIdNumber, null, null) : null;
 
   useEffect(() => {
     let active = true;
     setReadyLogoUri(null);
     setLogoFailed(false);
 
-    if (!logoUri) return () => {
-      active = false;
-    };
+    if (!logoUri) {
+      return () => {
+        active = false;
+      };
+    }
 
     void Image.prefetch(logoUri, 'memory-disk')
       .then((result) => {
@@ -103,9 +110,24 @@ export default function MediaDetailsScreen() {
     };
   }, [details]);
 
-  const onToggleFavorite = async () => {
+  const watchLabel = useMemo(() => {
+    if (!details) return copy.media.watch;
+    if (details.type === 'tv') {
+      const resumeSeason = seriesProgress?.lastSeason ?? firstEpisode?.season ?? 1;
+      const resumeEpisode = seriesProgress?.lastEpisode ?? firstEpisode?.episode ?? 1;
+      return `${copy.media.watch} S${resumeSeason} E${resumeEpisode}`;
+    }
+    if (details.type === 'movie' && movieProgress && movieProgress.positionMs > 0 && !movieProgress.watched) {
+      const totalMinutes = Math.floor(movieProgress.positionMs / 1000 / 60);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return `${copy.media.watch} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
+    return copy.media.watch;
+  }, [copy.media.watch, details, firstEpisode?.episode, firstEpisode?.season, seriesProgress, movieProgress]);
+
+  const onToggleFavorite = useCallback(async () => {
     if (!details || favoriteBusy) return;
-    // Invalidate in-flight checkFavorite result so it cannot override optimistic toggle.
     favoriteCheckVersionRef.current += 1;
     setFavoriteBusy(true);
     setFavoriteStatusReady(true);
@@ -122,7 +144,7 @@ export default function MediaDetailsScreen() {
     } finally {
       setFavoriteBusy(false);
     }
-  };
+  }, [details, favoriteBusy, isFavorite]);
 
   useEffect(() => {
     setMediaFavoriteHeader({
@@ -136,7 +158,7 @@ export default function MediaDetailsScreen() {
     return () => {
       resetMediaFavoriteHeader();
     };
-  }, [favoriteBusy, isFavorite, favoriteStatusReady, details?.id, details?.type]);
+  }, [details, favoriteBusy, favoriteStatusReady, isFavorite, onToggleFavorite]);
 
   return (
     <ThemedView style={styles.container}>
@@ -152,11 +174,7 @@ export default function MediaDetailsScreen() {
         {!loading && details ? (
           <>
             <View style={styles.heroCard}>
-              <MediaImage
-                primaryUri={backdropUri}
-                fallbackUris={[posterUri]}
-                style={styles.heroImage}
-              />
+              <MediaImage primaryUri={backdropUri} fallbackUris={[posterUri]} style={styles.heroImage} />
               {!logoFailed && logoUri && readyLogoUri === logoUri ? (
                 <View style={styles.logoWrap}>
                   <Image
@@ -172,16 +190,17 @@ export default function MediaDetailsScreen() {
 
             <ThemedText style={styles.title}>{details.title}</ThemedText>
             <View style={styles.metaRow}>
-              <ThemedText style={styles.metaItem}>
-                {details.type === 'tv' ? copy.media.tv : copy.media.movie}
-              </ThemedText>
-              {details.rating > 0 ? (
-                <ThemedText style={styles.metaItem}>★ {details.rating.toFixed(1)}</ThemedText>
-              ) : null}
-              {!!details.releaseDate ? (
-                <ThemedText style={styles.metaItem}>{details.releaseDate.slice(0, 4)}</ThemedText>
-              ) : null}
+              <ThemedText style={styles.metaItem}>{details.type === 'tv' ? copy.media.tv : copy.media.movie}</ThemedText>
+              {!!details.releaseDate ? <ThemedText style={styles.metaItem}>{details.releaseDate.slice(0, 4)}</ThemedText> : null}
             </View>
+
+            <RatingsRow
+              theme={theme}
+              kp={details.ratings?.kp ?? details.rating}
+              tmdb={details.ratings?.tmdb}
+              imdb={details.ratings?.imdb}
+            />
+
             {details.genres && details.genres.length > 0 ? (
               <View style={styles.genresRow}>
                 {details.genres.map((genre) => (
@@ -191,31 +210,63 @@ export default function MediaDetailsScreen() {
                 ))}
               </View>
             ) : null}
+
             <View style={styles.actionsRow}>
               <Pressable
                 style={styles.watchButton}
-                onPress={() =>
+onPress={() =>
                   router.push({
                     pathname: '/watch/[id]',
                     params: {
                       id: details.id,
                       title: details.title,
+                      season: details.type === 'tv' ? String(seriesProgress?.lastSeason ?? firstEpisode?.season ?? 1) : undefined,
+                      episode: details.type === 'tv' ? String(seriesProgress?.lastEpisode ?? firstEpisode?.episode ?? 1) : undefined,
                     },
                   })
                 }>
                 <View style={styles.watchButtonContent}>
                   <Play size={18} strokeWidth={2.4} color="#FFFFFF" />
-                  <ThemedText style={styles.watchButtonText}>{copy.media.watch}</ThemedText>
+                  <ThemedText style={styles.watchButtonText}>{watchLabel}</ThemedText>
                 </View>
               </Pressable>
-              <Pressable
-                style={styles.iconButton}
-                accessibilityLabel={copy.media.download}>
+              <Pressable style={styles.iconButton} accessibilityLabel={copy.media.download}>
                 <Download size={20} strokeWidth={2.3} color={theme.text} />
               </Pressable>
             </View>
-            {!!details.description ? (
-              <ThemedText style={styles.description}>{details.description}</ThemedText>
+
+            {!!details.description ? <ThemedText style={styles.description}>{details.description}</ThemedText> : null}
+
+            {details.type === 'tv' && seriesCatalog && selectedSeasonData ? (
+              <SeriesEpisodesSection
+                copy={copy}
+                theme={theme}
+                styles={styles}
+                detailsId={details.id}
+                detailsDescription={details.description}
+                mediaIdNumber={mediaIdNumber}
+                canReadProgress={canReadProgress}
+                posterUri={posterUri}
+                selectedSeasonData={selectedSeasonData}
+                seriesCatalog={seriesCatalog}
+                isSeasonPickerExpanded={isSeasonPickerExpanded}
+                setSeasonPickerExpanded={setSeasonPickerExpanded}
+                setSelectedSeason={setSelectedSeason}
+                sortedEpisodes={sortedEpisodes}
+                episodeMetaMap={episodeMetaMap}
+                resolveEpisodeStillUrl={resolveEpisodeStillUrl}
+                onOpenEpisode={(season, episode) =>
+                  router.push({
+                    pathname: '/watch/[id]',
+                    params: {
+                      id: details.id,
+                      title: details.title,
+                      season: String(season),
+                      episode: String(episode),
+                    },
+                  })
+                }
+              />
             ) : null}
           </>
         ) : null}

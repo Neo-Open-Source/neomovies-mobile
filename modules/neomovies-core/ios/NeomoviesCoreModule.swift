@@ -11,6 +11,10 @@ public class NeomoviesCoreModule: Module {
       return CollapsParser.parseCollapsCatalog(embedHtml: embedHtml)
     }
 
+    Function("parseAllohaRuntimePayload") { (payload: String, baseUrl: String, headers: [String: String]) -> [String: Any] in
+      return AllohaRuntimeParser.parsePayload(payload, baseURL: baseUrl, headers: headers) ?? [:]
+    }
+
     Function("rewriteCollapsHlsMaster") { (master: String, voices: [String], subtitles: [[String: String]], mediaId: String) -> String in
       let parsedSubtitles = subtitles.map { dict -> CollapsSubtitle in
         CollapsSubtitle(
@@ -111,7 +115,14 @@ public class NeomoviesCoreModule: Module {
       return CollapsAVPlayerController.shared.snapshot().asDictionary()
     }
 
-    AsyncFunction("avPlayerConfigurePlaylist") { (items: [[String: Any]], startIndex: Int, autoplay: Bool) throws -> [String: Any] in
+    AsyncFunction("avPlayerConfigurePlaylist") { (items: [[String: Any]], startIndex: Int, autoplay: Bool, kpId: Int?) throws -> [String: Any] in
+      print("[NeomoviesCore] avPlayerConfigurePlaylist called with kpId: \(kpId ?? -1), items: \(items.count), startIndex: \(startIndex)")
+      if let kpId = kpId {
+        print("[NeomoviesCore] Setting kpId: \(kpId)")
+        CollapsAVPlayerController.shared.setKinopoiskId(kpId)
+      } else {
+        print("[NeomoviesCore] WARNING: kpId is nil!")
+      }
       let playlist = items.compactMap { dict -> CollapsAVPlaylistItem? in
         guard let url = dict["url"] as? String, !url.isEmpty else { return nil }
         let mediaId = (dict["mediaId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)

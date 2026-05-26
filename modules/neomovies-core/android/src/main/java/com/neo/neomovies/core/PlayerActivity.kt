@@ -94,16 +94,14 @@ class PlayerActivity : BasePlayerActivity() {
             }
         }
 
-        android.util.Log.d(
-            "PlayerActivity",
-            "onCreate: url=$url, useExo=$useExo, urls=${urls?.size}, names=${names?.size}, voices=${voiceNames?.size}, firstName=${names?.firstOrNull()}, title=$title, headers=$headers"
-        )
-
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         viewModel.setEngine(useExo)
+        if (kinopoiskId != null) {
+            viewModel.setKinopoiskId(kinopoiskId)
+        }
         binding.playerView.player = viewModel.player
         binding.playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->

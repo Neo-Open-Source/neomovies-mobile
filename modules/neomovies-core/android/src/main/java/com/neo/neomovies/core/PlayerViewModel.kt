@@ -70,6 +70,10 @@ class PlayerViewModel(
 
     private var kpId: Int? = null
     private var onEpisodeProgressUpdate: ((Int, Int, Int, Long, Long) -> Unit)? = null
+
+    fun setKinopoiskId(id: Int) {
+        kpId = id
+    }
     private var pendingStartPositionMs: Long? = null
     private var pendingProgressKey: String? = null
     private var episodeVoiceNames: List<String> = emptyList()

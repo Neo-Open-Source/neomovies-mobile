@@ -95,6 +95,18 @@ export type CollapsWatchProgressSnapshot = CollapsWatchProgressRecord & {
 
 type NeomoviesCoreModule = {
   parseCollapsCatalog(embedHtml: string): CollapsCatalog;
+  parseAllohaRuntimePayload?(
+    payload: string,
+    baseUrl: string,
+    headers: Record<string, string>
+  ): {
+    videoURL?: string;
+    audioTracks?: string[];
+    audioVariants?: unknown[];
+    subtitles?: CollapsSubtitle[];
+    qualityVariants?: unknown[];
+    httpHeaders?: Record<string, string>;
+  };
   rewriteCollapsHlsMaster(master: string, voices: string[], subtitles: CollapsSubtitle[], mediaId: string): string;
   rewriteCollapsDashManifest(manifest: string, voices: string[], subtitles: CollapsSubtitle[], mediaId: string): string;
   rewriteCollapsHlsFromUrl(
@@ -223,6 +235,21 @@ export async function parseCollapsCatalog(embedHtml: string): Promise<CollapsCat
   const result = module.parseCollapsCatalog(embedHtml);
   debugLog('parseCollapsCatalog:done', { kind: result.kind });
   return result;
+}
+
+export function parseAllohaRuntimePayload(
+  payload: string,
+  baseUrl: string,
+  headers: Record<string, string> = {}
+): {
+  videoURL?: string;
+  audioTracks?: string[];
+  audioVariants?: unknown[];
+  subtitles?: CollapsSubtitle[];
+  qualityVariants?: unknown[];
+  httpHeaders?: Record<string, string>;
+} {
+  return getNativeModule().parseAllohaRuntimePayload?.(payload, baseUrl, headers) ?? {};
 }
 
 export async function rewriteCollapsHlsMaster(

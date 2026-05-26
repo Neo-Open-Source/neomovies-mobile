@@ -48,7 +48,8 @@ export type AVPlayerModule = {
       subtitles?: CollapsSubtitle[];
     }>,
     startIndex: number,
-    autoplay: boolean
+    autoplay: boolean,
+    kpId?: number | null
   ): Promise<AVPlayerState>;
   avPlayerPresentNativeUI(): Promise<void>;
   avPlayerDismissNativeUI(): Promise<void>;
