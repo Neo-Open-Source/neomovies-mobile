@@ -6,7 +6,7 @@ public class CollapsHlsRewriter {
         voices: [String],
         subtitles: [CollapsSubtitle] = [],
         mediaId: String,
-        rewriteVariantUris: Bool = true,
+        rewriteVariantUris: Bool = false,
         stripExistingSubtitles: Bool = false
     ) -> String {
         guard !master.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -47,7 +47,9 @@ public class CollapsHlsRewriter {
             }
         }
         
-        // Process variants and rewrite URIs with proper naming
+        // Process variants.
+        // Keep original variant URIs by default (same behavior as Android),
+        // because synthetic names require additional local variant files.
         var variantIndex = 0
         for i in streamInfIndex..<filteredLines.count {
             let line = filteredLines[i]
@@ -133,19 +135,15 @@ public class CollapsHlsRewriter {
         guard line.hasPrefix("#EXT-X-MEDIA") else { return line }
         guard line.contains("TYPE=AUDIO") else { return line }
         
-        // Extract NAME attribute
-        guard let rawName = extractQuotedAttr(line, key: "NAME") else { return line }
-        
-        // Try to extract voice index from NAME (e.g., "rus0", "ru1")
-        let pattern = "^(?:rus|ru)(\\d+)$"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-              let match = regex.firstMatch(in: rawName, options: [], range: NSRange(rawName.startIndex..., in: rawName)),
-              let indexRange = Range(match.range(at: 1), in: rawName),
-              let index = Int(rawName[indexRange]),
-              index < voices.count else {
-            return line
-        }
-        
+        let rawName = extractQuotedAttr(line, key: "NAME")
+        let uri = extractQuotedAttr(line, key: "URI")
+        let language = extractQuotedAttr(line, key: "LANGUAGE")
+
+        let index = extractAudioIndex(from: rawName)
+            ?? extractAudioIndex(from: uri)
+            ?? extractAudioIndex(from: language)
+
+        guard let index, index >= 0, index < voices.count else { return line }
         let voiceName = voices[index]
         
         // Determine language
@@ -160,6 +158,25 @@ public class CollapsHlsRewriter {
         output = addOrReplaceAttribute(output, key: "LANGUAGE", value: normalizedLang)
         
         return output
+    }
+
+    private static func extractAudioIndex(from raw: String?) -> Int? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let patterns = [
+            #"(?:^|[^a-z0-9])(?:rus|ru|eng|en)(\d+)(?:$|[^a-z0-9])"#,
+            #"(?:^|[^a-z0-9])audio[_-]?(\d+)(?:$|[^a-z0-9])"#
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let range = NSRange(raw.startIndex..<raw.endIndex, in: raw)
+            guard let match = regex.firstMatch(in: raw, options: [], range: range),
+                  let idxRange = Range(match.range(at: 1), in: raw),
+                  let idx = Int(raw[idxRange]) else {
+                continue
+            }
+            return idx
+        }
+        return nil
     }
 
     private static func isSubtitleMediaLine(_ line: String) -> Bool {

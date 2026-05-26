@@ -1,16 +1,25 @@
 import { ChevronDown, Download, Menu, Play } from 'lucide-react-native';
+import { Dispatch, SetStateAction } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { MediaImage } from '@/components/cards/media-image';
 import { RatingsRow } from '@/components/media/ratings-row';
 import { ThemedText } from '@/components/themed-text';
-import { getCollapsWatchProgress } from '@/native/collaps-parser';
+import { CollapsEpisode, CollapsCatalogSeries, CollapsSeason, getCollapsWatchProgress } from '@/native/collaps-parser';
+import { createMediaDetailsStyles } from '@/styles/media-details.styles';
 
 type ThemePalette = {
   text: string;
   textSecondary: string;
   border: string;
   backgroundElement: string;
+};
+
+type EpisodeMeta = {
+  overview?: string;
+  name?: string;
+  tmdbRating?: number | null;
+  imdbRating?: number | null;
 };
 
 type SeriesEpisodesSectionProps = {
@@ -21,19 +30,19 @@ type SeriesEpisodesSectionProps = {
     };
   };
   theme: ThemePalette;
-  styles: any;
+  styles: ReturnType<typeof createMediaDetailsStyles>;
   detailsId: string;
   detailsDescription: string;
   mediaIdNumber: number;
   canReadProgress: boolean;
   posterUri: string | null;
-  selectedSeasonData: any;
-  seriesCatalog: any;
+  selectedSeasonData: CollapsSeason;
+  seriesCatalog: CollapsCatalogSeries;
   isSeasonPickerExpanded: boolean;
-  setSeasonPickerExpanded: (updater: (prev: boolean) => boolean) => void;
+  setSeasonPickerExpanded: Dispatch<SetStateAction<boolean>>;
   setSelectedSeason: (season: number) => void;
-  sortedEpisodes: any[];
-  episodeMetaMap: Record<string, { overview?: string; name?: string; tmdbRating?: number | null; imdbRating?: number | null }>;
+  sortedEpisodes: CollapsEpisode[];
+  episodeMetaMap: Record<string, EpisodeMeta>;
   resolveEpisodeStillUrl: (movieId?: string | null, season?: number, episode?: number, size?: 'small' | 'large') => string | null;
   onOpenEpisode: (season: number, episode: number) => void;
 };
@@ -66,7 +75,7 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
       <View style={styles.seasonSelectorWrapper}>
         <Pressable
           style={styles.seasonsHeader}
-          onPress={() => setSeasonPickerExpanded((prev) => !prev)}>
+          onPress={() => setSeasonPickerExpanded((prev: boolean) => !prev)}>
           <View style={styles.seasonsHeaderLeft}>
             <Menu size={18} color={theme.text} />
             <ThemedText style={styles.seasonsHeaderLabel}>Season {selectedSeasonData.season}</ThemedText>
@@ -83,14 +92,14 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
           <View style={styles.seasonDropdownList}>
             {seriesCatalog.seasons
               .slice()
-              .sort((a: any, b: any) => a.season - b.season)
-              .map((season: any) => (
+              .sort((a, b) => a.season - b.season)
+              .map((season) => (
                 <Pressable
                   key={`season-${season.season}`}
                   style={[styles.seasonOptionRow, season.season === selectedSeasonData.season ? styles.seasonOptionRowActive : null]}
                   onPress={() => {
                     setSelectedSeason(season.season);
-                    setSeasonPickerExpanded(() => false);
+                    setSeasonPickerExpanded(false);
                   }}>
                   <ThemedText style={styles.seasonOptionText}>Season {season.season}</ThemedText>
                   {season.season === selectedSeasonData.season ? <ThemedText style={styles.seasonOptionCheck}>✓</ThemedText> : null}

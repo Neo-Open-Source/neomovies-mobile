@@ -12,11 +12,11 @@ import { ThemedView } from '@/components/themed-view';
 import { useMediaDetails } from '@/hooks/use-media-details';
 import { useSeriesDetails } from '@/hooks/use-series-details';
 import { useTheme } from '@/hooks/use-theme';
+import { useWatchProgress } from '@/hooks/use-watch-progress';
 import { useI18n } from '@/i18n';
 import { addFavorite, checkFavorite, removeFavorite, resolveEpisodeStillUrl, resolveBackdropUrl, resolveLogoUrl, resolvePosterUrl } from '@/lib/neomovies-api';
 import { getStoredTokens } from '@/lib/neoid-auth';
 import { resetMediaFavoriteHeader, setMediaFavoriteHeader } from '@/lib/media-favorite-header';
-import { getCollapsWatchProgress } from '@/native/collaps-parser';
 import { createMediaDetailsStyles } from '@/styles/media-details.styles';
 
 export default function MediaDetailsScreen() {
@@ -51,8 +51,8 @@ export default function MediaDetailsScreen() {
     sortedEpisodes,
   } = useSeriesDetails(details);
 
-  const movieProgress =
-    details?.type === 'movie' && canReadProgress ? getCollapsWatchProgress(mediaIdNumber, null, null) : null;
+  const movieKpId = details?.type === 'movie' && canReadProgress ? mediaIdNumber : null;
+  const movieProgress = useWatchProgress(movieKpId);
 
   useEffect(() => {
     let active = true;

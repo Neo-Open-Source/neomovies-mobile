@@ -142,8 +142,9 @@ class PlayerViewModel(
         .build()
 
     init {
+        TrustAllSSL.installGlobal()
         useExo = savedStateHandle.get<Boolean>(PlayerActivity.EXTRA_USE_EXO) ?: true
-        
+
         Log.d("PlayerVM", "init useExo=$useExo")
         player = createPlayer(useExo, preferSoftwareDecoder)
         player.addListener(this)

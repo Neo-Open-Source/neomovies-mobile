@@ -9,10 +9,11 @@ import java.io.IOException
 object CollapsHTTPClient {
     private const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 
-    private val client = OkHttpClient.Builder()
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .build()
+    private val client = TrustAllSSL.configureOkHttpBuilder(
+        OkHttpClient.Builder()
+            .followRedirects(true)
+            .followSslRedirects(true)
+    ).build()
 
     suspend fun fetch(url: String, referer: String? = null, origin: String? = null): String {
         return withContext(Dispatchers.IO) {

@@ -106,8 +106,11 @@ enum AllohaRuntimeParser {
         if let title = (item["translation"] as? [String: Any])?["name"] as? String, !title.isEmpty {
             return title
         }
-        if let title = item["title"] as? String, !title.isEmpty {
-            return title
+        let flatKeys = ["translationName", "translation_name", "translator", "studio", "voice", "voiceover", "dub", "dubbing", "name", "title", "label"]
+        for key in flatKeys {
+            if let title = item[key] as? String, !title.isEmpty {
+                return title
+            }
         }
         return "Озвучка \(index + 1)"
     }

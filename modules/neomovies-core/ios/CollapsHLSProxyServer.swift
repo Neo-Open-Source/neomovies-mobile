@@ -1,7 +1,9 @@
 import Foundation
 import Network
+import os.log
 
 final class CollapsHLSProxyServer {
+    private static let logger = OSLog(subsystem: "com.neo.neomovies", category: "CollapsHLSProxy")
     private let masterURL: URL
     private let headers: [String: String]
     private let queue = DispatchQueue(label: "ru.neomovies.hls-proxy")
@@ -45,11 +47,13 @@ final class CollapsHLSProxyServer {
               let url = URL(string: "http://127.0.0.1:\(port)/master.m3u8") else {
             throw CollapsHLSProxyError.invalidLocalURL
         }
+        os_log("start port=%{public}d master=%{public}s", log: Self.logger, type: .info, port, masterURL.absoluteString)
 
         return url
     }
 
     func stop() {
+        os_log("stop", log: Self.logger, type: .info)
         listener?.cancel()
         listener = nil
     }
@@ -77,6 +81,7 @@ final class CollapsHLSProxyServer {
     }
 
     private func response(for request: CollapsHLSProxyRequest) async -> CollapsHLSProxyResponse {
+        os_log("request method=%{public}s path=%{public}s", log: Self.logger, type: .debug, request.method, request.path)
         if request.method == "HEAD" {
             return CollapsHLSProxyResponse(status: 200, contentType: "application/octet-stream", headers: ["Accept-Ranges": "bytes"], body: Data())
         }
@@ -112,6 +117,7 @@ final class CollapsHLSProxyServer {
                 body: Data(rewritten.utf8)
             )
         } catch {
+            os_log("playlist error url=%{public}s err=%{public}s", log: Self.logger, type: .error, url.absoluteString, String(describing: error))
             return CollapsHLSProxyResponse(status: 502, contentType: "text/plain", body: Data("Playlist fetch failed".utf8))
         }
     }
@@ -126,6 +132,7 @@ final class CollapsHLSProxyServer {
                 body: fetched.data
             )
         } catch {
+            os_log("segment error url=%{public}s err=%{public}s", log: Self.logger, type: .error, url.absoluteString, String(describing: error))
             return CollapsHLSProxyResponse(status: 502, contentType: "text/plain", body: Data("Segment fetch failed".utf8))
         }
     }
@@ -133,6 +140,9 @@ final class CollapsHLSProxyServer {
     private func fetch(_ url: URL, request incomingRequest: CollapsHLSProxyRequest) async throws -> CollapsHLSFetchResponse {
         var request = URLRequest(url: url)
         headers.forEach { key, value in request.setValue(value, forHTTPHeaderField: key) }
+        if request.value(forHTTPHeaderField: "User-Agent") == nil {
+            request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", forHTTPHeaderField: "User-Agent")
+        }
         if let range = incomingRequest.headers["range"] {
             request.setValue(range, forHTTPHeaderField: "Range")
         }
@@ -143,8 +153,12 @@ final class CollapsHLSProxyServer {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let preview = String(data: data.prefix(200), encoding: .utf8) ?? "<non-utf8>"
+            os_log("upstream fail status=%{public}d url=%{public}s body=%{public}s", log: Self.logger, type: .error, status, url.absoluteString, preview)
             throw CollapsHLSProxyError.fetchFailed
         }
+        os_log("upstream ok status=%{public}d url=%{public}s size=%{public}d", log: Self.logger, type: .debug, httpResponse.statusCode, url.absoluteString, data.count)
         return CollapsHLSFetchResponse(
             status: httpResponse.statusCode,
             contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),

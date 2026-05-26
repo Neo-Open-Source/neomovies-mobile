@@ -111,6 +111,8 @@ export type CollapsEmbedPayload = {
   embedHtml: string;
   embedOrigin: string;
   embedReferer: string;
+  wrapperHtml?: string;
+  iframeSource?: string | null;
 };
 
 function extractIframeSource(html: string): string | null {
@@ -139,6 +141,8 @@ export async function getProviderEmbedHtml(
       embedHtml: wrapperHtml,
       embedOrigin: API_ORIGIN,
       embedReferer: API_ORIGIN.endsWith('/') ? API_ORIGIN : `${API_ORIGIN}/`,
+      wrapperHtml,
+      iframeSource: null,
     };
   }
 
@@ -146,6 +150,7 @@ export async function getProviderEmbedHtml(
     method: 'GET',
     headers: {
       Accept: 'text/html,application/xhtml+xml',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
       Referer: API_ORIGIN.endsWith('/') ? API_ORIGIN : `${API_ORIGIN}/`,
       Origin: API_ORIGIN,
     },
@@ -156,10 +161,23 @@ export async function getProviderEmbedHtml(
   }
 
   const iframeUrl = new URL(iframeSource);
+
+  if (provider === 'collaps') {
+    return {
+      embedHtml,
+      embedOrigin: 'https://kinokrad.my',
+      embedReferer: 'https://kinokrad.my/',
+      wrapperHtml,
+      iframeSource,
+    };
+  }
+
   return {
     embedHtml,
     embedOrigin: iframeUrl.origin,
     embedReferer: iframeUrl.origin.endsWith('/') ? `${iframeUrl.origin}/` : `${iframeUrl.origin}/`,
+    wrapperHtml,
+    iframeSource,
   };
 }
 

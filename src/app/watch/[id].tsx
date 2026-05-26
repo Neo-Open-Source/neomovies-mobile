@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import * as Device from 'expo-device';
 
 const ExpoFileSystem = require('expo-file-system') as {
@@ -28,17 +28,19 @@ import {
   CollapsEpisode,
   CollapsSeason,
   CollapsSubtitle,
-  parseAllohaRuntimePayload,
+  fetchAllohaSeriesCatalog,
   parseCollapsCatalog,
+  resolveAllohaPlayableFromIframe,
 } from '@/native/collaps-parser';
 import CollapsParser from 'neomovies-core';
 import { getProviderEmbedHtml } from '@/lib/neomovies-api';
-import { createWatchSelectorStyles } from '@/styles/watch-selector.styles';
 
 type PlayerHeaders = {
   Referer: string;
   Origin: string;
 };
+
+const ALLOHA_PUBLIC_TOKEN = 'ffbd312217e27c4245f2678afe1881';
 
 function isKnownAv1BrokenDevice(): boolean {
   if (Platform.OS !== 'android') return false;
@@ -87,6 +89,7 @@ function absolutizeHlsManifestUris(manifest: string, manifestUrl: string): strin
   });
   return absolutized.join('\n');
 }
+
 
 async function rewriteHlsToLocalOrFallback(
   hlsUrl: string,
@@ -189,6 +192,19 @@ async function shouldPreferHlsForAndroidExo(
   }
 }
 
+async function buildAllohaSeriesCatalogFromApi(mediaId: string): Promise<CollapsCatalog | null> {
+  const rawId = mediaId.replace(/^kp_/, '');
+  if (!rawId) return null;
+  return fetchAllohaSeriesCatalog(rawId, ALLOHA_PUBLIC_TOKEN);
+}
+
+async function resolveAllohaIframeToPlayable(
+  iframeUrl: string,
+  _headers: PlayerHeaders
+): Promise<{ url: string; subtitles: CollapsSubtitle[] }> {
+  return resolveAllohaPlayableFromIframe(iframeUrl);
+}
+
 export default function WatchPlayerScreen() {
   const params = useLocalSearchParams<{
     id?: string;
@@ -225,62 +241,11 @@ export default function WatchPlayerScreen() {
         };
         const catalog =
           source === 'alloha'
-            ? (() => {
-                const parsed = parseAllohaRuntimePayload(embedHtml, playbackHeaders.Origin, playbackHeaders);
-                const primaryUrl = parsed.videoURL ?? '';
-                const subtitles = parsed.subtitles ?? [];
-                if (!primaryUrl) {
-                  return {
-                    kind: 'movie' as const,
-                    source: 'alloha',
-                    playlist: {
-                      primaryUrl: '',
-                      hlsUrl: null,
-                      dashUrl: null,
-                      voiceovers: [],
-                      subtitles: [],
-                    },
-                  };
-                }
-                if (params.season || params.episode) {
-                  return {
-                    kind: 'series' as const,
-                    source: 'alloha',
-                    seasons: [
-                      {
-                        season: initialSeason,
-                        title: `Season ${initialSeason}`,
-                        episodes: [
-                          {
-                            season: initialSeason,
-                            episode: initialEpisode,
-                            title: `Episode ${initialEpisode}`,
-                            playlist: {
-                              primaryUrl,
-                              hlsUrl: primaryUrl.includes('.m3u8') ? primaryUrl : null,
-                              dashUrl: primaryUrl.includes('.mpd') ? primaryUrl : null,
-                              voiceovers: [],
-                              subtitles,
-                            },
-                          },
-                        ],
-                      },
-                    ],
-                  };
-                }
-                return {
-                  kind: 'movie' as const,
-                  source: 'alloha',
-                  playlist: {
-                    primaryUrl,
-                    hlsUrl: primaryUrl.includes('.m3u8') ? primaryUrl : null,
-                    dashUrl: primaryUrl.includes('.mpd') ? primaryUrl : null,
-                    voiceovers: [],
-                    subtitles,
-                  },
-                };
-              })()
+            ? (await buildAllohaSeriesCatalogFromApi(mediaId))
             : await parseCollapsCatalog(embedHtml);
+        if (!catalog) {
+          throw new Error('Failed to parse provider catalog');
+        }
 
         if (cancelled) return;
 
@@ -320,15 +285,28 @@ export default function WatchPlayerScreen() {
 
 
   return (
-    <ThemedView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+    <ThemedView style={styles.container}>
       {loading ? (
         <ActivityIndicator size="large" />
       ) : error ? (
-        <ThemedText style={{ color: 'red', padding: 20, textAlign: 'center' }}>{error}</ThemedText>
+        <ThemedText style={styles.errorText}>{error}</ThemedText>
       ) : null}
     </ThemedView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorText: {
+    color: 'red',
+    padding: 20,
+    textAlign: 'center',
+  },
+});
 
 async function launchMoviePlayer(
   catalog: CollapsCatalog & { kind: 'movie' },
@@ -337,30 +315,49 @@ async function launchMoviePlayer(
   mediaId: string
 ) {
   if (Platform.OS === 'ios') {
-    const url = catalog.playlist.hlsUrl ?? catalog.playlist.dashUrl ?? catalog.playlist.primaryUrl;
-    if (!url) return;
-    await avPlayerConfigurePlaylist(
-      [
-        {
-          mediaId: mediaId ?? url,
-          title: title ?? '',
-          url,
-          headers: {
-            Referer: playbackHeaders.Referer,
-            Origin: playbackHeaders.Origin,
-          },
-          voiceovers: catalog.playlist.voiceovers,
+    const kpId = Number(mediaId.replace(/^kp_/, ''));
+    const allohaVariants = catalog.allohaVariants;
+    const headers = { Referer: playbackHeaders.Referer, Origin: playbackHeaders.Origin };
+
+    const playlistItems = allohaVariants && allohaVariants.length > 1
+      ? allohaVariants.map((variant) => ({
+          mediaId: mediaId,
+          title: variant.title || title || '',
+          url: variant.url,
+          headers,
+          voiceovers: [],
           subtitles: catalog.playlist.subtitles,
-        },
-      ],
-      0,
-      true
-    );
+        }))
+      : (() => {
+          const url = catalog.playlist.hlsUrl ?? catalog.playlist.dashUrl ?? catalog.playlist.primaryUrl;
+          if (!url) return null;
+          return [{ mediaId: mediaId ?? url, title: title ?? '', url, headers, voiceovers: catalog.playlist.voiceovers, subtitles: catalog.playlist.subtitles }];
+        })();
+
+    if (!playlistItems) return;
+    await avPlayerConfigurePlaylist(playlistItems, 0, true, Number.isFinite(kpId) ? kpId : null);
     await avPlayerPresentNativeUI();
     return;
   }
 
   // Android ExoPlayer
+  const kpId = Number(mediaId.replace(/^kp_/, ''));
+  const allohaVariants = catalog.allohaVariants;
+
+  // For Alloha with multiple audio variants: launch a playlist where each item = one dubbing.
+  if (allohaVariants && allohaVariants.length > 1 && CollapsParser.exoPlayerLaunchPlaylist) {
+    await CollapsParser.exoPlayerLaunchPlaylist(
+      allohaVariants.map((v) => v.url),
+      0,
+      playbackHeaders,
+      allohaVariants.map((v) => v.title || title || ''),
+      title,
+      [],
+      Number.isFinite(kpId) ? kpId : null
+    );
+    return;
+  }
+
   const hlsUrl = catalog.playlist.hlsUrl;
   const dashUrl = catalog.playlist.dashUrl;
   const primaryUrl = catalog.playlist.primaryUrl;
@@ -404,7 +401,6 @@ async function launchMoviePlayer(
 
   if (!finalUrl) return;
 
-  const kpId = Number(mediaId.replace(/^kp_/, ''));
   await CollapsParser.exoPlayerLaunch?.(finalUrl, playbackHeaders, title, Number.isFinite(kpId) ? kpId : null);
 }
 
@@ -416,6 +412,22 @@ async function launchSeriesPlayer(
   initialSeason: number,
   initialEpisode: number
 ) {
+  if (catalog.source === 'alloha') {
+    const activeSeason = findSeasonByNumber(catalog.seasons, initialSeason);
+    const activeEpisode = activeSeason ? findEpisodeByNumber(activeSeason.episodes, initialEpisode) : null;
+    if (!activeEpisode) return;
+    const iframeUrl = activeEpisode.playlist.primaryUrl;
+    const resolved = await resolveAllohaIframeToPlayable(iframeUrl, playbackHeaders);
+    const kpId = Number(mediaId.replace(/^kp_/, ''));
+    await CollapsParser.exoPlayerLaunch?.(
+      resolved.url,
+      playbackHeaders,
+      `${title ?? 'Series'} S${activeEpisode.season}E${activeEpisode.episode}`,
+      Number.isFinite(kpId) ? kpId : null
+    );
+    return;
+  }
+
   const activeSeason = findSeasonByNumber(catalog.seasons, initialSeason);
   if (!activeSeason) return;
 
@@ -423,31 +435,46 @@ async function launchSeriesPlayer(
   if (!activeEpisode) return;
 
   if (Platform.OS === 'ios') {
-    const playlistItems = catalog.seasons
-      .flatMap((season) =>
-        season.episodes.map((episode) => ({
-          mediaId: `${mediaId}_s${season.season}_e${episode.episode}`,
-          title: title ?? 'Series',
-          url: episode.playlist.primaryUrl || episode.playlist.hlsUrl || episode.playlist.dashUrl,
-          headers: {
-            Referer: playbackHeaders.Referer,
-            Origin: playbackHeaders.Origin,
-          },
-          season: season.season,
-          episode: episode.episode,
-          voiceovers: episode.playlist.voiceovers,
-          subtitles: episode.playlist.subtitles,
-        }))
-      )
-      .filter((item) => Boolean(item.url));
-
-    const startIndex = Math.max(
-      0,
-      playlistItems.findIndex((item) => item.season === initialSeason && item.episode === initialEpisode)
-    );
-
     const kpId = Number(mediaId.replace(/^kp_/, ''));
-    
+    const headers = { Referer: playbackHeaders.Referer, Origin: playbackHeaders.Origin };
+    const allohaVariants = catalog.allohaVariants;
+
+    // For Alloha: each audio variant = a different dubbing/voice-over for the current episode.
+    // Present them as separate playlist items so the user can switch via prev/next.
+    const playlistItems = allohaVariants && allohaVariants.length > 1
+      ? allohaVariants.map((variant) => ({
+          mediaId: `${mediaId}_s${initialSeason}_e${initialEpisode}`,
+          title: variant.title || title || '',
+          url: variant.url,
+          headers,
+          season: initialSeason,
+          episode: initialEpisode,
+          voiceovers: [],
+          subtitles: activeEpisode.playlist.subtitles,
+        }))
+      : catalog.seasons.flatMap((season) =>
+          season.episodes.flatMap((episode) => {
+            const url = episode.playlist.primaryUrl || episode.playlist.hlsUrl || episode.playlist.dashUrl;
+            if (!url) return [];
+            return [
+              {
+                mediaId: `${mediaId}_s${season.season}_e${episode.episode}`,
+                title: title ?? 'Series',
+                url,
+                headers,
+                season: season.season,
+                episode: episode.episode,
+                voiceovers: episode.playlist.voiceovers,
+                subtitles: episode.playlist.subtitles,
+              },
+            ];
+          })
+        );
+
+    const startIndex = allohaVariants && allohaVariants.length > 1
+      ? 0
+      : Math.max(0, playlistItems.findIndex((item) => item.season === initialSeason && item.episode === initialEpisode));
+
     console.log('[iOS Player] Configuring playlist', {
       totalItems: playlistItems.length,
       startIndex,
@@ -455,18 +482,32 @@ async function launchSeriesPlayer(
       firstUrl: playlistItems[0]?.url?.substring(0, 100),
       targetEpisode: `S${initialSeason}E${initialEpisode}`,
     });
-    
+
     await avPlayerConfigurePlaylist(playlistItems, startIndex, true, Number.isFinite(kpId) ? kpId : null);
     await avPlayerPresentNativeUI();
     return;
   }
 
   // Android ExoPlayer
+  const kpId = Number(mediaId.replace(/^kp_/, ''));
+  const allohaVariantsAndroid = catalog.allohaVariants;
+
+  // For Alloha with multiple audio variants: each variant = a different dubbing for this episode.
+  if (allohaVariantsAndroid && allohaVariantsAndroid.length > 1 && CollapsParser.exoPlayerLaunchPlaylist) {
+    await CollapsParser.exoPlayerLaunchPlaylist(
+      allohaVariantsAndroid.map((v) => v.url),
+      0,
+      playbackHeaders,
+      allohaVariantsAndroid.map((v) => v.title || title || ''),
+      title,
+      [],
+      Number.isFinite(kpId) ? kpId : null
+    );
+    return;
+  }
+
   const hlsUrl = activeEpisode.playlist.hlsUrl;
   const dashUrl = activeEpisode.playlist.dashUrl;
-  const primaryUrl = activeEpisode.playlist.primaryUrl;
-  const seriesBaseId = normalizeMediaFileId(mediaId, 'series');
-  const episodeMediaId = `${seriesBaseId}_${activeEpisode.season}_${activeEpisode.episode}`;
   const preferHls = await shouldPreferHlsForAndroidExo(hlsUrl, dashUrl, playbackHeaders);
 
   const seasonPlaylist = catalog.seasons
@@ -490,7 +531,6 @@ async function launchSeriesPlayer(
     seasonPlaylist.findIndex((item) => item.season === activeEpisode.season && item.episode === activeEpisode.episode)
   );
 
-  const kpId = Number(mediaId.replace(/^kp_/, ''));
   if (CollapsParser.exoPlayerLaunchPlaylist && seasonPlaylist.length > 0) {
     await CollapsParser.exoPlayerLaunchPlaylist(
       seasonPlaylist.map((item) => item.url),
@@ -503,4 +543,3 @@ async function launchSeriesPlayer(
     );
   }
 }
-

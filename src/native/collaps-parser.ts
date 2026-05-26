@@ -28,16 +28,24 @@ export type CollapsSeason = {
   episodes: CollapsEpisode[];
 };
 
+export type AllohaAudioVariant = {
+  id: string;
+  title: string;
+  url: string;
+};
+
 export type CollapsCatalogMovie = {
   kind: 'movie';
   source: string;
   playlist: CollapsPlaylist;
+  allohaVariants?: AllohaAudioVariant[];
 };
 
 export type CollapsCatalogSeries = {
   kind: 'series';
   source: string;
   seasons: CollapsSeason[];
+  allohaVariants?: AllohaAudioVariant[];
 };
 
 export type CollapsCatalog = CollapsCatalogMovie | CollapsCatalogSeries;
@@ -102,7 +110,7 @@ type NeomoviesCoreModule = {
   ): {
     videoURL?: string;
     audioTracks?: string[];
-    audioVariants?: unknown[];
+    audioVariants?: AllohaAudioVariant[];
     subtitles?: CollapsSubtitle[];
     qualityVariants?: unknown[];
     httpHeaders?: Record<string, string>;
@@ -130,6 +138,18 @@ type NeomoviesCoreModule = {
     referer?: string | null,
     origin?: string | null
   ): Promise<boolean>;
+  fetchUrlTextInsecure?(
+    url: string,
+    referer?: string | null,
+    origin?: string | null
+  ): Promise<string>;
+  fetchAllohaSeriesCatalog?(
+    kpId: string,
+    token: string
+  ): Promise<CollapsCatalog | Record<string, never>>;
+  resolveAllohaPlayableFromIframe?(
+    iframeUrl: string
+  ): Promise<{ url: string; subtitles?: CollapsSubtitle[] }>;
   collapsDeviceSupportsAv1?(): boolean;
   avPlayerLoad(
     url: string,
@@ -149,7 +169,8 @@ type NeomoviesCoreModule = {
       subtitles?: CollapsSubtitle[];
     }>,
     startIndex: number,
-    autoplay: boolean
+    autoplay: boolean,
+    kpId?: number | null
   ): Promise<AVPlayerState>;
   avPlayerPresentNativeUI(): Promise<void>;
   avPlayerDismissNativeUI(): Promise<void>;
@@ -193,7 +214,7 @@ type NeomoviesCoreModule = {
 };
 
 let nativeModule: NeomoviesCoreModule | null = null;
-const LOG_PREFIX = '[CollapsNative]';
+const LOG_PREFIX = '[NeomoviesNative]';
 
 function debugLog(message: string, payload?: unknown) {
   if (__DEV__) {
@@ -244,12 +265,179 @@ export function parseAllohaRuntimePayload(
 ): {
   videoURL?: string;
   audioTracks?: string[];
-  audioVariants?: unknown[];
+  audioVariants?: AllohaAudioVariant[];
   subtitles?: CollapsSubtitle[];
   qualityVariants?: unknown[];
   httpHeaders?: Record<string, string>;
 } {
   return getNativeModule().parseAllohaRuntimePayload?.(payload, baseUrl, headers) ?? {};
+}
+
+function findBalancedObject(input: string, markerIndex: number): string | null {
+  let start = markerIndex;
+  while (start >= 0 && input[start] !== '{') start -= 1;
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let quote = '';
+
+  for (let i = start; i < input.length; i += 1) {
+    const ch = input[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === quote) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      quote = ch;
+      continue;
+    }
+
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return input.slice(start, i + 1);
+    }
+  }
+
+  return null;
+}
+
+type AllohaEpisodeHint = { season: number; episode: number; blob: string };
+
+function extractAllohaEpisodeHints(payload: string): AllohaEpisodeHint[] {
+  const hints: AllohaEpisodeHint[] = [];
+  const seen = new Set<string>();
+  const regex = /["']season["']\s*:\s*(\d+)[\s\S]{0,300}?["']episode["']\s*:\s*(\d+)[\s\S]{0,2000}?["']hlsSource["']\s*:/gi;
+
+  for (const match of payload.matchAll(regex)) {
+    const season = Number(match[1]);
+    const episode = Number(match[2]);
+    const idx = match.index ?? -1;
+    if (!Number.isFinite(season) || !Number.isFinite(episode) || idx < 0) continue;
+    const blob = findBalancedObject(payload, idx);
+    if (!blob) continue;
+    const key = `${season}-${episode}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hints.push({ season, episode, blob });
+  }
+
+  return hints;
+}
+
+export function parseAllohaCatalogFromPayload(
+  payload: string,
+  baseUrl: string,
+  headers: Record<string, string> = {},
+  fallbackSeason = 1,
+  fallbackEpisode = 1
+): CollapsCatalog | null {
+  debugLog('parseAllohaCatalogFromPayload:start', {
+    payloadLength: payload.length,
+    baseUrl,
+    fallbackSeason,
+    fallbackEpisode,
+  });
+  const root = parseAllohaRuntimePayload(payload, baseUrl, headers);
+  const rootSubtitles = root.subtitles ?? [];
+  const rootVariants = root.audioVariants ?? [];
+  const hints = extractAllohaEpisodeHints(payload);
+  debugLog('parseAllohaCatalogFromPayload:hints', { count: hints.length });
+
+  if (hints.length > 0) {
+    const episodes: CollapsEpisode[] = [];
+    for (const hint of hints) {
+      const parsed = parseAllohaRuntimePayload(hint.blob, baseUrl, headers);
+      const url = parsed.videoURL ?? '';
+      if (!url) continue;
+      episodes.push({
+        season: hint.season,
+        episode: hint.episode,
+        title: `Episode ${hint.episode}`,
+        playlist: {
+          primaryUrl: url,
+          hlsUrl: url.includes('.m3u8') ? url : null,
+          dashUrl: url.includes('.mpd') ? url : null,
+          voiceovers: [],
+          subtitles: parsed.subtitles ?? rootSubtitles,
+        },
+      });
+    }
+
+    if (episodes.length > 0) {
+      const seasonsMap = new Map<number, CollapsEpisode[]>();
+      for (const ep of episodes) {
+        const arr = seasonsMap.get(ep.season) ?? [];
+        arr.push(ep);
+        seasonsMap.set(ep.season, arr);
+      }
+
+      const seasons = Array.from(seasonsMap.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([season, seasonEpisodes]) => ({
+          season,
+          title: `Season ${season}`,
+          episodes: seasonEpisodes.sort((a, b) => a.episode - b.episode),
+        }));
+
+      const result: CollapsCatalog = {
+        kind: 'series',
+        source: 'alloha',
+        seasons,
+        allohaVariants: rootVariants,
+      };
+      debugLog('parseAllohaCatalogFromPayload:series', {
+        seasons: result.seasons.length,
+        episodes: result.seasons.reduce((acc, s) => acc + s.episodes.length, 0),
+      });
+      return result;
+    }
+  }
+
+  const url = root.videoURL ?? '';
+  if (!url) return null;
+
+  const fallback: CollapsCatalog = {
+    kind: 'series',
+    source: 'alloha',
+    seasons: [
+      {
+        season: fallbackSeason,
+        title: `Season ${fallbackSeason}`,
+        episodes: [
+          {
+            season: fallbackSeason,
+            episode: fallbackEpisode,
+            title: `Episode ${fallbackEpisode}`,
+            playlist: {
+              primaryUrl: url,
+              hlsUrl: url.includes('.m3u8') ? url : null,
+              dashUrl: url.includes('.mpd') ? url : null,
+              voiceovers: [],
+              subtitles: rootSubtitles,
+            },
+          },
+        ],
+      },
+    ],
+    allohaVariants: rootVariants,
+  };
+  debugLog('parseAllohaCatalogFromPayload:fallback', {
+    seasons: fallback.seasons.length,
+    episodes: fallback.seasons[0]?.episodes.length ?? 0,
+    hasVideo: Boolean(url),
+  });
+  return fallback;
 }
 
 export async function rewriteCollapsHlsMaster(
@@ -363,6 +551,42 @@ export async function collapsDashContainsAv1(
   return result;
 }
 
+export async function fetchUrlTextInsecure(
+  url: string,
+  headers?: { referer?: string | null; origin?: string | null }
+): Promise<string> {
+  const module = getNativeModule();
+  if (!module.fetchUrlTextInsecure) {
+    throw new Error('fetchUrlTextInsecure is not available');
+  }
+  return module.fetchUrlTextInsecure(url, headers?.referer ?? null, headers?.origin ?? null);
+}
+
+export async function fetchAllohaSeriesCatalog(
+  kpId: string,
+  token: string
+): Promise<CollapsCatalog | null> {
+  const module = getNativeModule();
+  if (!module.fetchAllohaSeriesCatalog) return null;
+  const result = await module.fetchAllohaSeriesCatalog(kpId, token);
+  if (!result || !('kind' in result)) return null;
+  return result as CollapsCatalog;
+}
+
+export async function resolveAllohaPlayableFromIframe(
+  iframeUrl: string
+): Promise<{ url: string; subtitles: CollapsSubtitle[] }> {
+  const module = getNativeModule();
+  if (!module.resolveAllohaPlayableFromIframe) {
+    throw new Error('resolveAllohaPlayableFromIframe is not available');
+  }
+  const result = await module.resolveAllohaPlayableFromIframe(iframeUrl);
+  return {
+    url: result.url,
+    subtitles: result.subtitles ?? [],
+  };
+}
+
 export function collapsDeviceSupportsAv1(): boolean {
   const module = getNativeModule();
   return module.collapsDeviceSupportsAv1?.() ?? false;
@@ -397,9 +621,10 @@ export async function avPlayerConfigurePlaylist(
     subtitles?: CollapsSubtitle[];
   }>,
   startIndex = 0,
-  autoplay = true
+  autoplay = true,
+  kpId?: number | null
 ): Promise<AVPlayerState> {
-  return getNativeModule().avPlayerConfigurePlaylist(items, startIndex, autoplay);
+  return getNativeModule().avPlayerConfigurePlaylist(items, startIndex, autoplay, kpId ?? null);
 }
 
 export async function avPlayerPresentNativeUI(): Promise<void> {

@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -84,15 +85,16 @@ abstract class BasePlayerActivity : AppCompatActivity() {
     }
 
     protected fun configureInsets(playerControls: View) {
-        playerControls.setOnApplyWindowInsetsListener { _, windowInsets ->
-            val cutout = windowInsets.displayCutout
-            playerControls.updatePadding(
-                left = cutout?.safeInsetLeft ?: 0,
-                top = cutout?.safeInsetTop ?: 0,
-                right = cutout?.safeInsetRight ?: 0,
-                bottom = cutout?.safeInsetBottom ?: 0,
+        ViewCompat.setOnApplyWindowInsetsListener(playerControls) { view, insets ->
+            val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.updatePadding(
+                left = maxOf(cutout.left, bars.left),
+                top = maxOf(cutout.top, bars.top),
+                right = maxOf(cutout.right, bars.right),
+                bottom = maxOf(cutout.bottom, bars.bottom),
             )
-            return@setOnApplyWindowInsetsListener windowInsets
+            insets
         }
     }
 }

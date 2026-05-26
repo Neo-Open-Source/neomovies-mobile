@@ -358,8 +358,8 @@ class PlayerActivity : BasePlayerActivity() {
         )
         hideSystemUI()
 
-        // Default landscape
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        // Follow device auto-rotate in player.
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
     }
 
     private fun animateRipple(image: ImageView) {

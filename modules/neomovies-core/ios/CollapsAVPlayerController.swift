@@ -354,6 +354,10 @@ public final class CollapsAVPlayerController: NSObject {
             player.play()
         }
 
+        if let kpId = kpId {
+            CollapsPlaybackProgressStore.shared.saveLastPlayed(kpId: kpId, season: itemMeta.season, episode: itemMeta.episode)
+        }
+
         Task {
             _ = await refreshQualityOptions()
         }
@@ -375,9 +379,8 @@ public final class CollapsAVPlayerController: NSObject {
             guard let self else { return }
             let state = self.snapshot()
             if let mediaId = state.mediaId {
-                CollapsPlaybackProgressStore.shared.save(mediaId: mediaId, positionSec: state.currentTimeSec)
-                
-                // Логирование сохранения прогресса
+                let dur = state.durationSec > 0 ? state.durationSec : nil
+                CollapsPlaybackProgressStore.shared.save(mediaId: mediaId, positionSec: state.currentTimeSec, durationSec: dur)
                 if let kpId = self.kpId, let currentItem = self.playlist[safe: self.currentIndex] {
                     print("[AVPlayer] Saving progress: kpId=\(kpId), season=\(currentItem.season ?? 0), episode=\(currentItem.episode ?? 0), position=\(state.currentTimeSec)s, duration=\(state.durationSec)s")
                 }
@@ -449,7 +452,9 @@ public final class CollapsAVPlayerController: NSObject {
 
         let seconds = player.currentTime().seconds
         guard seconds.isFinite, seconds >= 0 else { return }
-        CollapsPlaybackProgressStore.shared.save(mediaId: mediaId, positionSec: seconds)
+        let rawDur = player.currentItem?.duration.seconds
+        let dur: Double? = (rawDur?.isFinite == true && (rawDur ?? 0) > 0) ? rawDur : nil
+        CollapsPlaybackProgressStore.shared.save(mediaId: mediaId, positionSec: seconds, durationSec: dur)
     }
 
     @MainActor

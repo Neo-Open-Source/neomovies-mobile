@@ -43,17 +43,50 @@ final class CollapsNativePlayerViewController: AVPlayerViewController, UIGesture
         dimBottom.frame = CGRect(x: 0, y: view.bounds.height - 220, width: view.bounds.width, height: 220)
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        forceToLandscape()
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         onWillDisappearCallback?()
+        restoreToPortrait()
     }
-    
+
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         return .allButUpsideDown
     }
-    
+
     override var shouldAutorotate: Bool {
         return true
+    }
+
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
+        return .landscapeRight
+    }
+
+    private func forceToLandscape() {
+        if #available(iOS 16.0, *) {
+            guard let windowScene = view.window?.windowScene else { return }
+            let prefs = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: [.landscapeRight, .landscapeLeft])
+            windowScene.requestGeometryUpdate(prefs) { _ in }
+            setNeedsUpdateOfSupportedInterfaceOrientations()
+            return
+        }
+        UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+        UIViewController.attemptRotationToDeviceOrientation()
+    }
+
+    private func restoreToPortrait() {
+        if #available(iOS 16.0, *) {
+            guard let windowScene = view.window?.windowScene else { return }
+            let prefs = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: [.portrait])
+            windowScene.requestGeometryUpdate(prefs) { _ in }
+            return
+        }
+        UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
+        UIViewController.attemptRotationToDeviceOrientation()
     }
 
     @MainActor
@@ -92,10 +125,12 @@ final class CollapsNativePlayerViewController: AVPlayerViewController, UIGesture
         dimTop.colors = [UIColor.black.withAlphaComponent(0.72).cgColor, UIColor.clear.cgColor]
         dimBottom.colors = [UIColor.clear.cgColor, UIColor.black.withAlphaComponent(0.75).cgColor]
 
+        overlay.isUserInteractionEnabled = true
+
         let tap = UITapGestureRecognizer(target: self, action: #selector(toggleChrome))
         tap.cancelsTouchesInView = false
         tap.delegate = self
-        overlay.addGestureRecognizer(tap)
+        view.addGestureRecognizer(tap)
 
         closeButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
         closeButton.tintColor = .white
@@ -299,5 +334,9 @@ final class CollapsNativePlayerViewController: AVPlayerViewController, UIGesture
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         !(touch.view is UIControl)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        return true
     }
 }
