@@ -1,4 +1,3 @@
-import { FontAwesome5 } from '@expo/vector-icons';
 import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -51,7 +50,9 @@ export function RatingsRow({ theme, kp, tmdb, imdb, compact = false }: RatingsRo
 
       {hasImdb ? (
         <View style={styles.badge}>
-          <FontAwesome5 name="imdb" size={compact ? 16 : 18} color="#F5C518" />
+          <View style={[styles.logoTextWrap, styles.imdbLogo]}>
+            <ThemedText style={styles.logoTextSmall}>IMDb</ThemedText>
+          </View>
           <ThemedText style={styles.value}>{formatRating(imdb)}</ThemedText>
         </View>
       ) : null}
@@ -94,6 +95,9 @@ function createStyles(theme: ThemePalette, compact: boolean) {
     },
     tmdbLogo: {
       backgroundColor: '#01D277',
+    },
+    imdbLogo: {
+      backgroundColor: '#F5C518',
     },
     logoText: {
       color: '#FFFFFF',

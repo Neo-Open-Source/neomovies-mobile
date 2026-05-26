@@ -48,6 +48,7 @@ export default function MediaDetailsScreen() {
     mediaIdNumber,
     canReadProgress,
     seriesProgress,
+    seasonProgressMap,
     sortedEpisodes,
   } = useSeriesDetails(details);
 
@@ -254,6 +255,7 @@ onPress={() =>
                 setSelectedSeason={setSelectedSeason}
                 sortedEpisodes={sortedEpisodes}
                 episodeMetaMap={episodeMetaMap}
+                seasonProgressMap={seasonProgressMap}
                 resolveEpisodeStillUrl={resolveEpisodeStillUrl}
                 onOpenEpisode={(season, episode) =>
                   router.push({

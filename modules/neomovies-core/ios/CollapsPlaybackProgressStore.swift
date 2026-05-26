@@ -38,6 +38,14 @@ public final class CollapsPlaybackProgressStore {
         return defaults.double(forKey: durationPrefix + mediaId)
     }
 
+    public func normalizedProgress(mediaId: String) -> Double? {
+        guard !mediaId.isEmpty else { return nil }
+        let position = load(mediaId: mediaId)
+        let duration = loadDuration(mediaId: mediaId)
+        guard position.isFinite, duration.isFinite, duration > 0 else { return nil }
+        return max(0, min(position / duration, 0.999))
+    }
+
     public func loadWatched(mediaId: String) -> Bool {
         guard !mediaId.isEmpty else { return false }
         return defaults.bool(forKey: watchedPrefix + mediaId)

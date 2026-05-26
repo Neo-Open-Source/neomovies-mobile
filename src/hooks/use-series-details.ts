@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 
 import { useContentSource } from '@/hooks/use-content-source';
 import { useWatchProgress } from '@/hooks/use-watch-progress';
 import { getProviderEmbedHtml, getTvEpisodeDetails } from '@/lib/neomovies-api';
-import { CollapsCatalog, CollapsSeason, fetchAllohaSeriesCatalog, parseCollapsCatalog } from '@/native/collaps-parser';
+import { CollapsCatalog, CollapsSeason, listCollapsWatchProgressRecords, parseCollapsCatalog } from '@/native/collaps-parser';
 import { MediaDetails } from '@/types/api';
+import { buildAllohaSeriesCatalogFromApi } from '@/hooks/watch-player/alloha';
 
 type EpisodeMeta = {
   overview?: string;
@@ -26,9 +28,17 @@ type EpisodeMetaCachePayload = {
   entries: Record<string, EpisodeMetaCacheEntry>;
 };
 
-const ALLOHA_PUBLIC_TOKEN = 'ffbd312217e27c4245f2678afe1881';
 const EPISODE_META_CACHE_TTL_MS = 1000 * 60 * 60 * 12;
 const EPISODE_META_CACHE_PREFIX = 'series_episode_meta_v1';
+const PRIORITY_EPISODE_META_PREFETCH = 6;
+const EPISODE_META_FETCH_CONCURRENCY = 2;
+const BACKGROUND_EPISODE_META_FETCH_CONCURRENCY = 1;
+const BACKGROUND_EPISODE_META_DELAY_MS = 350;
+const BACKGROUND_EPISODE_META_BATCH_SIZE = 2;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function episodeMetaCacheKey(mediaId: string, season: number): string {
   return `${EPISODE_META_CACHE_PREFIX}:${mediaId}:s${season}`;
@@ -56,23 +66,15 @@ async function writeEpisodeMetaCache(mediaId: string, season: number, entries: R
   }
 }
 
-async function tryLoadAllohaSeriesCatalog(
-  mediaId: string,
-  _embedHtml: string,
-  _wrapperHtml?: string,
-  _iframeSource?: string | null
-): Promise<CollapsCatalog | null> {
-  const rawId = mediaId.replace(/^kp_/, '');
-  if (!rawId) return null;
-  return fetchAllohaSeriesCatalog(rawId, ALLOHA_PUBLIC_TOKEN);
-}
-
 export function useSeriesDetails(details: MediaDetails | null) {
-  const { source } = useContentSource();
+  const { source, ready: sourceReady } = useContentSource();
   const [catalog, setCatalog] = useState<CollapsCatalog | null>(null);
   const [selectedSeason, setSelectedSeason] = useState(1);
   const [isSeasonPickerExpanded, setSeasonPickerExpanded] = useState(false);
   const [episodeMetaMap, setEpisodeMetaMap] = useState<Record<string, EpisodeMeta>>({});
+  const [seasonProgressMap, setSeasonProgressMap] = useState<Record<string, number>>({});
+  const mediaIdNumber = Number((details?.id ?? '').replace(/^kp_/, ''));
+  const canReadProgress = Number.isFinite(mediaIdNumber);
 
   useEffect(() => {
     let active = true;
@@ -84,16 +86,11 @@ export function useSeriesDetails(details: MediaDetails | null) {
     }
     void (async () => {
       try {
-        const payload = await getProviderEmbedHtml(details.id, source);
+        if (!sourceReady) return;
         const parsed =
           source === 'alloha'
             ? (await (async () => {
-                const apiCatalog = await tryLoadAllohaSeriesCatalog(
-                  details.id,
-                  payload.embedHtml,
-                  payload.wrapperHtml,
-                  payload.iframeSource
-                ).catch((error) => {
+                const apiCatalog = await buildAllohaSeriesCatalogFromApi(details.id).catch((error) => {
                   if (__DEV__) {
                     console.log('[AllohaSeries] api catalog error', {
                       message: error instanceof Error ? error.message : String(error),
@@ -103,7 +100,10 @@ export function useSeriesDetails(details: MediaDetails | null) {
                 });
                 return apiCatalog;
               })())
-            : await parseCollapsCatalog(payload.embedHtml);
+            : await (async () => {
+                const payload = await getProviderEmbedHtml(details.id, source);
+                return parseCollapsCatalog(payload.embedHtml);
+              })();
         if (!active) return;
         if (__DEV__) {
           console.log('[SeriesDetails] parsed catalog', {
@@ -125,7 +125,7 @@ export function useSeriesDetails(details: MediaDetails | null) {
     return () => {
       active = false;
     };
-  }, [details, source]);
+  }, [details, source, sourceReady]);
 
   const seriesCatalog = catalog?.kind === 'series' ? catalog : null;
   const selectedSeasonData: CollapsSeason | null =
@@ -140,7 +140,7 @@ export function useSeriesDetails(details: MediaDetails | null) {
 
   useEffect(() => {
     let active = true;
-    if (!details || !selectedSeasonData || source === 'alloha') return () => {
+    if (!details || !selectedSeasonData) return () => {
       active = false;
     };
 
@@ -168,47 +168,94 @@ export function useSeriesDetails(details: MediaDetails | null) {
         setEpisodeMetaMap((prev) => ({ ...prev, ...cachedMetaPatch }));
       }
 
-      const queue = episodes.filter((item) => {
+      const pendingEpisodes = episodes.filter((item) => {
         const key = `${item.season}-${item.episode}`;
         const cache = cacheEntries[key];
         if (!cache) return true;
         return now - cache.fetchedAtMs > EPISODE_META_CACHE_TTL_MS;
       });
 
-      if (queue.length === 0) return;
+      if (pendingEpisodes.length === 0) return;
+
+      const priorityQueue = pendingEpisodes.slice(0, PRIORITY_EPISODE_META_PREFETCH);
+      const backgroundQueue = pendingEpisodes.slice(PRIORITY_EPISODE_META_PREFETCH);
 
       const nextCacheEntries = { ...cacheEntries };
-      const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
-        while (active && queue.length > 0) {
-          const item = queue.shift();
-          if (!item) return;
-          const key = `${item.season}-${item.episode}`;
-          try {
-            const data = await getTvEpisodeDetails(details.id, item.season, item.episode);
-            if (!active) return;
-            const nextMeta = {
-              overview: data.overview,
-              name: data.name,
-              tmdbRating: data.ratings?.tmdb,
-              imdbRating: data.ratings?.imdb,
-            };
-            setEpisodeMetaMap((prev) => ({ ...prev, [key]: nextMeta }));
-            nextCacheEntries[key] = {
-              ...nextMeta,
-              fetchedAtMs: Date.now(),
-            };
-          } catch {
-            if (!active) return;
-            if (!nextCacheEntries[key]) {
-              setEpisodeMetaMap((prev) => ({ ...prev, [key]: {} }));
+
+      const fetchEpisodeMeta = async (item: typeof pendingEpisodes[number]) => {
+        const key = `${item.season}-${item.episode}`;
+        try {
+          const data = await getTvEpisodeDetails(details.id, item.season, item.episode);
+          if (!active) return null;
+          const nextMeta = {
+            overview: data.overview,
+            name: data.name,
+            tmdbRating: data.ratings?.tmdb,
+            imdbRating: data.ratings?.imdb,
+          };
+          nextCacheEntries[key] = {
+            ...nextMeta,
+            fetchedAtMs: Date.now(),
+          };
+          return { key, meta: nextMeta };
+        } catch {
+          if (!active) return null;
+          if (!nextCacheEntries[key]) {
+            return { key, meta: {} };
+          }
+          return null;
+        }
+      };
+
+      const runQueue = async (
+        queue: typeof pendingEpisodes,
+        concurrency: number,
+        delayMs = 0
+      ) => {
+        const patch: Record<string, EpisodeMeta> = {};
+        const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+          while (active && queue.length > 0) {
+            const item = queue.shift();
+            if (!item) return;
+            if (delayMs > 0) {
+              await sleep(delayMs);
+              if (!active) return;
+            }
+            const result = await fetchEpisodeMeta(item);
+            if (result) {
+              patch[result.key] = result.meta;
             }
           }
-        }
-      });
+        });
+        await Promise.all(workers);
+        return patch;
+      };
 
-      await Promise.all(workers);
+      const priorityPatch = await runQueue(priorityQueue, EPISODE_META_FETCH_CONCURRENCY);
       if (!active) return;
+      if (Object.keys(priorityPatch).length > 0) {
+        setEpisodeMetaMap((prev) => ({ ...prev, ...priorityPatch }));
+      }
       await writeEpisodeMetaCache(details.id, season, nextCacheEntries);
+
+      if (backgroundQueue.length > 0) {
+        void (async () => {
+          const queue = [...backgroundQueue];
+          while (active && queue.length > 0) {
+            const chunk = queue.splice(0, BACKGROUND_EPISODE_META_BATCH_SIZE);
+            const patch = await runQueue(
+              chunk,
+              BACKGROUND_EPISODE_META_FETCH_CONCURRENCY,
+              BACKGROUND_EPISODE_META_DELAY_MS
+            );
+            if (!active) return;
+            if (Object.keys(patch).length > 0) {
+              setEpisodeMetaMap((prev) => ({ ...prev, ...patch }));
+              await writeEpisodeMetaCache(details.id, season, nextCacheEntries);
+            }
+          }
+        })();
+      }
     })();
 
     return () => {
@@ -216,10 +263,24 @@ export function useSeriesDetails(details: MediaDetails | null) {
     };
   }, [details, selectedSeasonData, source]);
 
-  const firstEpisode = selectedSeasonData?.episodes[0] ?? null;
-  const mediaIdNumber = Number((details?.id ?? '').replace(/^kp_/, ''));
-  const canReadProgress = Number.isFinite(mediaIdNumber);
+  useFocusEffect(
+    useCallback(() => {
+      if (!details || details.type !== 'tv' || !Number.isFinite(mediaIdNumber)) {
+        setSeasonProgressMap({});
+        return;
+      }
 
+      const records = listCollapsWatchProgressRecords(mediaIdNumber);
+      const nextMap: Record<string, number> = {};
+      for (const record of records) {
+        if (record.season == null || record.episode == null) continue;
+        nextMap[`${record.season}-${record.episode}`] = Math.max(0, Math.min(record.progressPercent ?? 0, 100));
+      }
+      setSeasonProgressMap(nextMap);
+    }, [details, mediaIdNumber])
+  );
+
+  const firstEpisode = selectedSeasonData?.episodes[0] ?? null;
   const progressKpId = details?.type === 'tv' && canReadProgress ? mediaIdNumber : null;
   const seriesProgress = useWatchProgress(progressKpId);
 
@@ -240,6 +301,7 @@ export function useSeriesDetails(details: MediaDetails | null) {
     mediaIdNumber,
     canReadProgress,
     seriesProgress,
+    seasonProgressMap,
     sortedEpisodes,
   };
 }

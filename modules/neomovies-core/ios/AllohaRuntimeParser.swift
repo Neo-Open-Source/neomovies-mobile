@@ -35,11 +35,13 @@ enum AllohaRuntimeParser {
             var qualityVariants: [[String: Any]] = []
             var audioVariants: [[String: Any]] = []
             var masterURL: URL?
+            var adaptiveURL: URL?
 
             for (index, item) in source.enumerated() {
                 guard let quality = item["quality"] as? [String: Any] else { continue }
                 var itemVariants: [[String: Any]] = []
                 var itemMasterURL: URL?
+                var itemAdaptiveURL: URL?
 
                 for (label, rawValue) in quality {
                     for rawURL in qualityURLStrings(from: rawValue) {
@@ -47,8 +49,14 @@ enum AllohaRuntimeParser {
                         if masterURL == nil {
                             masterURL = urls.first(where: { $0.lastPathComponent.lowercased().contains("master.m3u8") })
                         }
+                        if adaptiveURL == nil {
+                            adaptiveURL = preferredAdaptiveURL(in: urls)
+                        }
                         if itemMasterURL == nil {
                             itemMasterURL = urls.first(where: { $0.lastPathComponent.lowercased().contains("master.m3u8") })
+                        }
+                        if itemAdaptiveURL == nil {
+                            itemAdaptiveURL = preferredAdaptiveURL(in: urls)
                         }
                         guard let target = urls.first(where: { !$0.lastPathComponent.lowercased().contains("master.m3u8") }) ?? urls.first else {
                             continue
@@ -65,20 +73,27 @@ enum AllohaRuntimeParser {
                     }
                 }
 
-                let chosenAudioURL = itemMasterURL ?? itemVariants.last.flatMap { URL(string: ($0["url"] as? String) ?? "") }
+                let sortedItemVariants = itemVariants.sorted { qualityHeight(($0["label"] as? String) ?? "") < qualityHeight(($1["label"] as? String) ?? "") }
+                let chosenAudioURL = itemMasterURL
+                    ?? itemAdaptiveURL
+                    ?? sortedItemVariants.last.flatMap { URL(string: ($0["url"] as? String) ?? "") }
                 if let chosenAudioURL {
                     audioVariants.append([
                         "id": "\(index)-\(chosenAudioURL.absoluteString)",
                         "title": audioVariantTitle(from: item, index: index),
                         "url": chosenAudioURL.absoluteString,
-                        "qualityVariants": itemVariants
+                        "qualityVariants": sortedItemVariants
                     ])
                 }
             }
 
+            qualityVariants.sort { qualityHeight(($0["label"] as? String) ?? "") < qualityHeight(($1["label"] as? String) ?? "") }
             let deduplicatedAudioVariants = deduplicatedAudioVariants(audioVariants)
             let firstURL = deduplicatedAudioVariants.first?["url"] as? String
-            let pickedURL = firstURL ?? masterURL?.absoluteString ?? (qualityVariants.last?["url"] as? String)
+            let pickedURL = masterURL?.absoluteString
+                ?? adaptiveURL?.absoluteString
+                ?? firstURL
+                ?? (qualityVariants.last?["url"] as? String)
             guard let pickedURL else { continue }
 
             return [
@@ -103,15 +118,7 @@ enum AllohaRuntimeParser {
     }
 
     private static func audioVariantTitle(from item: [String: Any], index: Int) -> String {
-        if let title = (item["translation"] as? [String: Any])?["name"] as? String, !title.isEmpty {
-            return title
-        }
-        let flatKeys = ["translationName", "translation_name", "translator", "studio", "voice", "voiceover", "dub", "dubbing", "name", "title", "label"]
-        for key in flatKeys {
-            if let title = item[key] as? String, !title.isEmpty {
-                return title
-            }
-        }
+        if let title = firstAudioTitle(in: item) { return title }
         return "Озвучка \(index + 1)"
     }
 
@@ -125,53 +132,102 @@ enum AllohaRuntimeParser {
         if let values = value as? [Any] {
             return values.flatMap { qualityURLStrings(from: $0) }
         }
+        if let dictionary = value as? [String: Any] {
+            let preferredKeys = ["url", "file", "src", "hls", "master", "manifest", "link"]
+            let preferredValues = preferredKeys.compactMap { dictionary[$0] }.flatMap(qualityURLStrings)
+            if !preferredValues.isEmpty { return preferredValues }
+            return dictionary.values.flatMap(qualityURLStrings)
+        }
         return []
     }
 
     private static func allohaURLs(from raw: String, baseURL: URL) -> [URL] {
-        let decoded = raw.replacingOccurrences(of: "\\/", with: "/")
-        let parts = decoded.components(separatedBy: " or ")
-        return parts.compactMap { part in
-            let clean = part.trimmingCharacters(in: .whitespacesAndNewlines)
-            if clean.hasPrefix("//") {
-                return URL(string: "https:\(clean)")
-            }
-            return URL(string: clean, relativeTo: baseURL)?.absoluteURL
-        }
+        splitAllohaURLList(raw)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .compactMap { makeURL(from: $0, baseURL: baseURL) }
+            .filter(isPlayable)
     }
 
     private static func normalizedQualityLabel(_ label: String) -> String {
-        let clean = label.replacingOccurrences(of: "_", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        return clean.isEmpty ? "Auto" : clean
+        let clean = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.lowercased().hasSuffix("p") { return clean }
+        if Int(clean) != nil { return "\(clean)p" }
+        return clean.isEmpty ? "Поток" : clean
+    }
+
+    private static func qualityHeight(_ label: String) -> Int {
+        Int(label.lowercased().replacingOccurrences(of: "p", with: "")) ?? 0
+    }
+
+    private static func preferredAdaptiveURL(in urls: [URL]) -> URL? {
+        if let master = urls.first(where: { $0.lastPathComponent.lowercased().contains("master.m3u8") }) {
+            return master
+        }
+        if urls.count > 1 {
+            let second = urls[1]
+            if second.absoluteString.lowercased().contains(".m3u8") {
+                return second
+            }
+        }
+        return urls.first(where: { $0.absoluteString.lowercased().contains(".m3u8") })
     }
 
     private static func firstPreferredStreamURL(in payload: String, baseURL: URL) -> URL? {
-        let pattern = #"https?:\\/\\/[^\"'\s>]+\\.(m3u8|mpd)[^\"'\s>]*"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
-        let range = NSRange(payload.startIndex..<payload.endIndex, in: payload)
-        guard let match = regex.firstMatch(in: payload, options: [], range: range),
-              let matchRange = Range(match.range(at: 0), in: payload) else {
-            return nil
+        for key in ["hls", "dash", "mp4", "file", "url", "src", "stream", "manifest"] {
+            let patterns = [
+                #"\b"# + key + #"\s*:\s*"([^"]+)""#,
+                #"\b"# + key + #"\s*:\s*'([^']+)'"#,
+                #"""# + key + #""\s*:\s*"([^"]+)""#,
+                #"""# + key + #""\s*:\s*'([^']+)'"#,
+                #"\b"# + key + #"\s*=\s*"([^"]+)""#,
+                #"\b"# + key + #"\s*=\s*'([^']+)'"#
+            ]
+
+            for pattern in patterns {
+                if let value = firstCapture(in: payload, pattern: pattern),
+                   let url = makeURL(from: value, baseURL: baseURL),
+                   isPlayable(url) {
+                    return url
+                }
+            }
         }
-        let value = String(payload[matchRange]).replacingOccurrences(of: "\\/", with: "/")
-        return URL(string: value, relativeTo: baseURL)?.absoluteURL
+
+        return firstURL(in: payload, matchingExtensions: ["m3u8", "mp4", "mpd"], baseURL: baseURL)
+            ?? firstEscapedURL(in: payload, matchingExtensions: ["m3u8", "mp4", "mpd"], baseURL: baseURL)
     }
 
     private static func subtitleTracks(in payload: String, baseURL: URL) -> [[String: Any]] {
-        let pattern = #"https?:\\/\\/[^\"'\s>]+\\.(vtt|srt)[^\"'\s>]*"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
-        let range = NSRange(payload.startIndex..<payload.endIndex, in: payload)
-        return regex.matches(in: payload, options: [], range: range).compactMap { match in
-            guard let matchRange = Range(match.range(at: 0), in: payload) else { return nil }
-            let value = String(payload[matchRange]).replacingOccurrences(of: "\\/", with: "/")
-            guard let url = URL(string: value, relativeTo: baseURL)?.absoluteURL else { return nil }
-            return ["url": url.absoluteString, "label": "Subtitle", "language": "ru"]
+        let patterns = [
+            #"\{\s*"url"\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)"\s*,\s*"name"\s*:\s*"([^"]+)""#,
+            #"\{\s*url\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)"\s*,\s*name\s*:\s*"([^"]+)""#,
+            #"\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"url"\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)""#
+        ]
+
+        var tracks: [[String: Any]] = []
+        for pattern in patterns {
+            tracks.append(contentsOf: subtitleTracks(in: payload, pattern: pattern, baseURL: baseURL))
+        }
+        if tracks.isEmpty, let url = firstURL(in: payload, matchingExtensions: ["vtt", "srt"], baseURL: baseURL) {
+            tracks.append(["name": "Субтитры", "url": url.absoluteString])
+        }
+        var seen = Set<String>()
+        return tracks.filter { track in
+            let key = track["url"] as? String ?? ""
+            return seen.insert(key).inserted
         }
     }
 
     private static func embeddedJSONObjectCandidates(in payload: String) -> [String] {
         var candidates = balancedJSONObjectCandidates(containing: #"\"hlsSource\""#, in: payload)
         candidates.append(contentsOf: balancedJSONObjectCandidates(containing: "hlsSource", in: payload))
+        let pattern = #"\{[^{}]*"hlsSource"\s*:\s*\[[\s\S]*?\]\s*(?:,[\s\S]*?)?\}"#
+        if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+            let range = NSRange(payload.startIndex..<payload.endIndex, in: payload)
+            candidates.append(contentsOf: regex.matches(in: payload, range: range).compactMap { match in
+                guard let r = Range(match.range, in: payload) else { return nil }
+                return String(payload[r])
+            })
+        }
         var seen = Set<String>()
         return candidates.filter { seen.insert($0).inserted }
     }
@@ -214,6 +270,176 @@ enum AllohaRuntimeParser {
             }
             index = payload.index(after: index)
         }
+        return nil
+    }
+
+    private static func splitAllohaURLList(_ rawValue: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: #"\s+or\s+"#, options: [.caseInsensitive]) else {
+            return rawValue.components(separatedBy: " or ")
+        }
+        let range = NSRange(rawValue.startIndex..<rawValue.endIndex, in: rawValue)
+        let normalized = regex.stringByReplacingMatches(in: rawValue, range: range, withTemplate: "\u{0}")
+        return normalized.components(separatedBy: "\u{0}")
+    }
+
+    private static func decodeJavaScriptString(_ value: String) -> String {
+        var decoded = value.replacingOccurrences(of: "\\/", with: "/")
+        decoded = decoded.replacingOccurrences(of: "\\u0026", with: "&")
+        decoded = decoded.replacingOccurrences(of: "\\u003d", with: "=")
+        decoded = decoded.replacingOccurrences(of: "\\u002f", with: "/")
+        decoded = decoded.replacingOccurrences(of: "\\u003a", with: ":")
+        decoded = decoded.replacingOccurrences(of: "\\u0025", with: "%")
+        decoded = decoded.replacingOccurrences(of: "\\n", with: "")
+        decoded = decoded.replacingOccurrences(of: "\\t", with: "")
+        decoded = decoded.replacingOccurrences(of: "\\\\", with: "\\")
+        return decoded
+    }
+
+    private static func makeURL(from rawValue: String, baseURL: URL) -> URL? {
+        let cleanValue = decodeJavaScriptString(rawValue)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        guard !cleanValue.isEmpty else { return nil }
+        if cleanValue.hasPrefix("//") {
+            return URL(string: "https:\(cleanValue)")
+        }
+        if let absolute = URL(string: cleanValue), absolute.scheme != nil {
+            return absolute
+        }
+        return URL(string: cleanValue, relativeTo: baseURL)?.absoluteURL
+    }
+
+    private static func isPlayable(_ url: URL) -> Bool {
+        let path = url.absoluteString.lowercased()
+        return path.contains(".m3u8") || path.contains(".mpd") || path.contains(".mp4")
+    }
+
+    private static func firstCapture(in text: String, pattern: String, captureGroup: Int = 1) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              match.numberOfRanges > captureGroup,
+              let r = Range(match.range(at: captureGroup), in: text) else {
+            return nil
+        }
+        return String(text[r])
+    }
+
+    private static func firstURL(in text: String, matchingExtensions extensions: [String], baseURL: URL) -> URL? {
+        let escaped = extensions.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
+        let pattern = #"https?:\/\/[^\s"'<>\\]+\.("# + escaped + #")(?:\?[^\s"'<>\\]*)?"#
+        guard let value = firstCapture(in: text, pattern: pattern, captureGroup: 0) else { return nil }
+        return makeURL(from: value, baseURL: baseURL)
+    }
+
+    private static func firstEscapedURL(in text: String, matchingExtensions extensions: [String], baseURL: URL) -> URL? {
+        let escaped = extensions.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
+        let pattern = #"https?:\\\/\\\/[^\s"'<>]+\.("# + escaped + #")(?:\?[^\s"'<>\\]*)?"#
+        guard let value = firstCapture(in: text, pattern: pattern, captureGroup: 0) else { return nil }
+        return makeURL(from: value, baseURL: baseURL)
+    }
+
+    private static func subtitleTracks(in text: String, pattern: String, baseURL: URL) -> [[String: Any]] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard match.numberOfRanges >= 3,
+                  let firstRange = Range(match.range(at: 1), in: text),
+                  let secondRange = Range(match.range(at: 2), in: text) else {
+                return nil
+            }
+            let first = String(text[firstRange])
+            let second = String(text[secondRange])
+            let urlCandidate = first.contains(".vtt") || first.contains(".srt") ? first : second
+            let nameCandidate = urlCandidate == first ? second : first
+            guard let url = makeURL(from: urlCandidate, baseURL: baseURL) else { return nil }
+            return ["name": decodeJavaScriptString(nameCandidate), "url": url.absoluteString]
+        }
+    }
+
+    private static func firstAudioTitle(in value: Any) -> String? {
+        if let dictionary = value as? [String: Any] {
+            for key in preferredAudioTitleKeys {
+                if let title = stringTitle(from: dictionary[key]) {
+                    return title
+                }
+            }
+            let candidates = dictionary
+                .filter { key, val in isLikelyAudioTitleKey(key) && stringTitle(from: val) != nil }
+                .compactMap { stringTitle(from: $0.value) }
+            if let title = candidates.first {
+                return title
+            }
+            for key in preferredAudioContainerKeys {
+                if let nested = dictionary[key], let title = firstAudioTitle(in: nested) {
+                    return title
+                }
+            }
+            for (key, nested) in dictionary where !isIgnoredAudioTitleContainer(key) {
+                if let title = firstAudioTitle(in: nested) {
+                    return title
+                }
+            }
+        }
+        if let array = value as? [Any] {
+            for item in array {
+                if let title = firstAudioTitle(in: item) {
+                    return title
+                }
+            }
+        }
+        return nil
+    }
+
+    private static var preferredAudioTitleKeys: [String] {
+        [
+            "translation", "translationName", "translation_name", "translator", "translatorName", "translator_name",
+            "studio", "studioName", "studio_name", "voice", "voiceName", "voice_name", "voiceover", "dub",
+            "dubbing", "name", "title", "label"
+        ]
+    }
+
+    private static var preferredAudioContainerKeys: [String] {
+        ["translation", "translator", "voice", "voiceover", "dub", "dubbing", "studio", "data"]
+    }
+
+    private static func isLikelyAudioTitleKey(_ key: String) -> Bool {
+        let lower = key.lowercased()
+        return lower.contains("translation") ||
+            lower.contains("translator") ||
+            lower.contains("studio") ||
+            lower.contains("voice") ||
+            lower.contains("dub") ||
+            lower == "name" ||
+            lower == "title" ||
+            lower == "label"
+    }
+
+    private static func isIgnoredAudioTitleContainer(_ key: String) -> Bool {
+        let lower = key.lowercased()
+        return lower == "quality" ||
+            lower.contains("source") ||
+            lower.contains("hls") ||
+            lower.contains("url") ||
+            lower.contains("file")
+    }
+
+    private static func stringTitle(from value: Any?) -> String? {
+        guard let value else { return nil }
+        if let string = value as? String {
+            let clean = decodeJavaScriptString(string)
+                .replacingOccurrences(of: "_", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty,
+                  !clean.localizedCaseInsensitiveContains(".m3u8"),
+                  URL(string: clean)?.scheme == nil else {
+                return nil
+            }
+            return clean
+        }
+        if value is NSNumber { return nil }
         return nil
     }
 }

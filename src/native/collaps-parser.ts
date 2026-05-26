@@ -149,7 +149,27 @@ type NeomoviesCoreModule = {
   ): Promise<CollapsCatalog | Record<string, never>>;
   resolveAllohaPlayableFromIframe?(
     iframeUrl: string
-  ): Promise<{ url: string; subtitles?: CollapsSubtitle[] }>;
+  ): Promise<{
+    url: string;
+    subtitles?: CollapsSubtitle[];
+    headers?: Record<string, string>;
+    qualityVariants?: Array<{
+      label?: string;
+      url?: string;
+      bandwidth?: number | null;
+      height?: number | null;
+    }>;
+    audioVariants?: Array<{
+      title?: string;
+      url?: string;
+      qualityVariants?: Array<{
+        label?: string;
+        url?: string;
+        bandwidth?: number | null;
+        height?: number | null;
+      }>;
+    }>;
+  }>;
   collapsDeviceSupportsAv1?(): boolean;
   avPlayerLoad(
     url: string,
@@ -167,6 +187,22 @@ type NeomoviesCoreModule = {
       episode?: number;
       voiceovers?: string[];
       subtitles?: CollapsSubtitle[];
+      audioVariants?: Array<{
+        title: string;
+        url: string;
+        qualityVariants?: Array<{
+          label: string;
+          url: string;
+          bitrate?: number | null;
+          height?: number | null;
+        }>;
+      }>;
+      qualityVariants?: Array<{
+        label: string;
+        url: string;
+        bitrate?: number | null;
+        height?: number | null;
+      }>;
     }>,
     startIndex: number,
     autoplay: boolean,
@@ -215,6 +251,7 @@ type NeomoviesCoreModule = {
 
 let nativeModule: NeomoviesCoreModule | null = null;
 const LOG_PREFIX = '[NeomoviesNative]';
+let nativeModuleInitLogged = false;
 
 function debugLog(message: string, payload?: unknown) {
   if (__DEV__) {
@@ -227,8 +264,11 @@ function debugLog(message: string, payload?: unknown) {
 }
 
 function getNativeModule(): NeomoviesCoreModule {
-  debugLog('getNativeModule:start', { platform: Platform.OS });
   if (!nativeModule) {
+    if (!nativeModuleInitLogged) {
+      debugLog('getNativeModule:init', { platform: Platform.OS });
+      nativeModuleInitLogged = true;
+    }
     debugLog('NeomoviesCore linked successfully');
     nativeModule = CollapsParser as NeomoviesCoreModule;
   }
@@ -575,7 +615,13 @@ export async function fetchAllohaSeriesCatalog(
 
 export async function resolveAllohaPlayableFromIframe(
   iframeUrl: string
-): Promise<{ url: string; subtitles: CollapsSubtitle[] }> {
+): Promise<{
+  url: string;
+  subtitles: CollapsSubtitle[];
+  audioVariants?: Array<{ title: string; url: string; qualityVariants?: Array<{ label: string; url: string; bitrate?: number | null; height?: number | null }> }>;
+  qualityVariants?: Array<{ label: string; url: string; bitrate?: number | null; height?: number | null }>;
+  headers?: Record<string, string>;
+}> {
   const module = getNativeModule();
   if (!module.resolveAllohaPlayableFromIframe) {
     throw new Error('resolveAllohaPlayableFromIframe is not available');
@@ -584,6 +630,35 @@ export async function resolveAllohaPlayableFromIframe(
   return {
     url: result.url,
     subtitles: result.subtitles ?? [],
+    headers: (result.headers && typeof result.headers === 'object') ? result.headers as Record<string, string> : {},
+    qualityVariants: Array.isArray(result.qualityVariants)
+      ? result.qualityVariants
+          .map((item: any) => ({
+            label: typeof item?.label === 'string' ? item.label : '',
+            url: typeof item?.url === 'string' ? item.url : '',
+            bitrate: typeof item?.bandwidth === 'number' ? item.bandwidth : null,
+            height: typeof item?.label === 'string' && /\d+p/i.test(item.label) ? Number.parseInt(item.label, 10) : null,
+          }))
+          .filter((item: { url: string }) => item.url.length > 0)
+      : [],
+    audioVariants: Array.isArray(result.audioVariants)
+      ? result.audioVariants
+          .map((item: any) => ({
+            title: typeof item?.title === 'string' ? item.title : '',
+            url: typeof item?.url === 'string' ? item.url : '',
+            qualityVariants: Array.isArray(item?.qualityVariants)
+              ? item.qualityVariants
+                  .map((q: any) => ({
+                    label: typeof q?.label === 'string' ? q.label : '',
+                    url: typeof q?.url === 'string' ? q.url : '',
+                    bitrate: typeof q?.bandwidth === 'number' ? q.bandwidth : null,
+                    height: typeof q?.label === 'string' && /\d+p/i.test(q.label) ? Number.parseInt(q.label, 10) : null,
+                  }))
+                  .filter((q: { url: string }) => q.url.length > 0)
+              : [],
+          }))
+          .filter((item: { title: string; url: string }) => item.url.length > 0)
+      : [],
   };
 }
 
@@ -619,6 +694,7 @@ export async function avPlayerConfigurePlaylist(
     episode?: number;
     voiceovers?: string[];
     subtitles?: CollapsSubtitle[];
+    audioVariants?: Array<{ title: string; url: string }>;
   }>,
   startIndex = 0,
   autoplay = true,

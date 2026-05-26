@@ -59,6 +59,7 @@ class PlayerActivity : BasePlayerActivity() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val appOps = getSystemService(APP_OPS_SERVICE) as AppOpsManager?
+            @Suppress("DEPRECATION")
             appOps?.unsafeCheckOpNoThrow(
                 AppOpsManager.OPSTR_PICTURE_IN_PICTURE,
                 Process.myUid(),
@@ -358,8 +359,8 @@ class PlayerActivity : BasePlayerActivity() {
         )
         hideSystemUI()
 
-        // Follow device auto-rotate in player.
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
+        // Always open player in landscape, while still allowing sensor-based left/right rotation.
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
     }
 
     private fun animateRipple(image: ImageView) {

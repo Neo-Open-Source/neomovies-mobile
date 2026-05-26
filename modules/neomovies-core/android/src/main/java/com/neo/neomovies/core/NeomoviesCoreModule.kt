@@ -200,10 +200,10 @@ class NeomoviesCoreModule : Module() {
       }
     }
 
-    AsyncFunction("fetchAllohaSeriesCatalog") { kpId: String, token: String ->
-      val apiUrl = "https://api.alloha.tv/?token=${java.net.URLEncoder.encode(token, "UTF-8")}&kp=${java.net.URLEncoder.encode(kpId, "UTF-8")}"
+    AsyncFunction("fetchAllohaSeriesCatalog") { kpId: String, _token: String ->
+      val apiUrl = "https://api.neomovies.ru/api/v1/alloha/catalog/kp/${java.net.URLEncoder.encode(kpId, "UTF-8")}"
       val body = kotlinx.coroutines.runBlocking {
-        CollapsHTTPClient.fetch(apiUrl, "https://api.alloha.tv/", "https://api.alloha.tv")
+        CollapsHTTPClient.fetch(apiUrl, "https://api.neomovies.ru/", "https://api.neomovies.ru")
       }
       val root = JSONObject(body)
       val data = root.optJSONObject("data") ?: return@AsyncFunction emptyMap<String, Any>()
@@ -260,6 +260,14 @@ class NeomoviesCoreModule : Module() {
     }
 
     AsyncFunction("resolveAllohaPlayableFromIframe") { iframeUrl: String ->
+      val context = appContext.reactContext ?: throw Exception("No react context")
+      runCatching {
+        val resolved = kotlinx.coroutines.runBlocking {
+          AllohaRuntimeResolver(context).resolve(iframeUrl)
+        }
+        return@AsyncFunction resolved
+      }
+
       val visited = mutableSetOf<String>()
       var currentUrl = iframeUrl
       var lastReason = "unknown"
@@ -271,16 +279,30 @@ class NeomoviesCoreModule : Module() {
           CollapsHTTPClient.fetch(currentUrl, "$origin/", origin)
         }
         val parsed = AllohaRuntimeParser.parsePayload(html, origin, mapOf("Referer" to "$origin/", "Origin" to origin))
-        val parsedUrl = parsed
-          ?.get("audioVariants")
-          ?.let { it as? List<Map<String, Any?>> }
-          ?.firstOrNull { (it["url"] as? String).isNullOrBlank().not() }
+        val parsedAudioVariants: List<Map<String, Any?>> = (parsed?.get("audioVariants") as? List<*>)
+          ?.mapNotNull { raw ->
+            val item = raw as? Map<*, *> ?: return@mapNotNull null
+            item.entries
+              .filter { it.key is String }
+              .associate { (k, v) -> k as String to v }
+          }
+          ?: emptyList()
+        val parsedSubtitles: List<Map<String, String>> = (parsed?.get("subtitles") as? List<*>)
+          ?.mapNotNull { raw ->
+            val item = raw as? Map<*, *> ?: return@mapNotNull null
+            val title = item["title"] as? String ?: return@mapNotNull null
+            val url = item["url"] as? String ?: return@mapNotNull null
+            mapOf("title" to title, "url" to url)
+          }
+          ?: emptyList()
+        val parsedUrl = parsedAudioVariants
+          .firstOrNull { (it["url"] as? String).isNullOrBlank().not() }
           ?.get("url") as? String ?: (parsed?.get("videoURL") as? String ?: "")
         if (parsedUrl.isNotBlank()) {
-          return@AsyncFunction mapOf("url" to parsedUrl, "subtitles" to (parsed["subtitles"] ?: emptyList<Map<String, String>>()))
+          return@AsyncFunction mapOf("url" to parsedUrl, "subtitles" to parsedSubtitles)
         }
         extractDirectStreamUrl(html, origin)?.let {
-          return@AsyncFunction mapOf("url" to it, "subtitles" to (parsed?.get("subtitles") ?: emptyList<Map<String, String>>()))
+          return@AsyncFunction mapOf("url" to it, "subtitles" to parsedSubtitles)
         }
         val nested = extractIframeSrc(html)
         if (!nested.isNullOrBlank()) {

@@ -4,14 +4,12 @@ import android.app.Application
 import android.content.Context
 import android.net.Uri
 import android.os.Build
-import android.os.Bundle
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -75,6 +73,7 @@ class PlayerViewModel(
         kpId = id
     }
     private var pendingStartPositionMs: Long? = null
+    private var pendingStartDurationMs: Long? = null
     private var pendingProgressKey: String? = null
     private var episodeVoiceNames: List<String> = emptyList()
     private var lastInitArgs: LastInitArgs? = null
@@ -127,13 +126,7 @@ class PlayerViewModel(
         val fileLoaded: Boolean,
     )
 
-    private val prefs by lazy {
-        application.getSharedPreferences("player_progress", Context.MODE_PRIVATE)
-    }
-
-    private val watchedPrefs by lazy {
-        application.getSharedPreferences("collaps_watched", Context.MODE_PRIVATE)
-    }
+    private val progressStore by lazy { PlayerProgressStore(application.applicationContext) }
 
     // Shared AudioAttributes to avoid duplication
     private val audioAttributes = AudioAttributes.Builder()
@@ -142,7 +135,6 @@ class PlayerViewModel(
         .build()
 
     init {
-        TrustAllSSL.installGlobal()
         useExo = savedStateHandle.get<Boolean>(PlayerActivity.EXTRA_USE_EXO) ?: true
 
         Log.d("PlayerVM", "init useExo=$useExo")
@@ -281,20 +273,7 @@ class PlayerViewModel(
 
         val resolvedUrls = urls
 
-        val mediaItems = resolvedUrls.mapIndexed { index, url ->
-            val displayName = names?.getOrNull(index).orEmpty()
-            val extras = Bundle().apply { putString("display_name", displayName) }
-            MediaItem.Builder()
-                .setMediaId(url)
-                .setUri(url)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(baseTitle)
-                        .setExtras(extras)
-                        .build()
-                )
-                .build()
-        }
+        val mediaItems = PlayerMediaItemFactory.create(resolvedUrls, names, baseTitle)
 
         val currentUrl = resolvedUrls.getOrNull(startIndex) ?: resolvedUrls.firstOrNull().orEmpty()
         val initialItem = mediaItems.getOrNull(startIndex)
@@ -302,11 +281,19 @@ class PlayerViewModel(
             _uiState.update { it.copy(currentItemTitle = buildDisplayTitle(initialItem)) }
         }
 
-        val progressKey = "pos_$currentUrl"
-        val startPosition = if (startFromBeginning) 0L else prefs.getLong(progressKey, 0L)
+        val initialDisplayName = names?.getOrNull(startIndex).orEmpty()
+        val parsedInitial = parseSeasonEpisode(initialDisplayName)
+        val progressKey = if (kinopoiskId != null && parsedInitial != null) {
+            "pos_kp_${kinopoiskId}_$parsedInitial"
+        } else {
+            "pos_$currentUrl"
+        }
+        val startPosition = progressStore.readStartPosition(progressKey, startFromBeginning)
+        val savedDuration = progressStore.readSavedDuration(progressKey)
         pendingStartPositionMs = if (startPosition > 0L) startPosition else null
+        pendingStartDurationMs = if (savedDuration > 0L) savedDuration else null
         pendingProgressKey = progressKey
-        Log.d("PlayerVM", "Restored progress: key=$progressKey position=$startPosition")
+        Log.d("PlayerVM", "Restored progress: key=$progressKey position=$startPosition savedDuration=$savedDuration")
 
         Log.d("PlayerVM", "Setting media items: count=${mediaItems.size}, startIndex=$startIndex, startPosition=$startPosition")
         player.setMediaItems(mediaItems, startIndex, startPosition)
@@ -325,7 +312,7 @@ class PlayerViewModel(
         _tracksVersion.update { it + 1 }
         if (!useExo) return
 
-        logVideoTracks(tracks)
+        PlayerTrackSelectorDelegate.logVideoTracks(tracks)
 
         val appliedPreferredAudio = applyPreferredAudioTrackIfAny()
         val appliedPreferredVideo = applyPreferredVideoQualityIfAny()
@@ -346,24 +333,6 @@ class PlayerViewModel(
                 .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                 .build()
             appliedFirstAudioOverride = true
-        }
-    }
-
-    private fun logVideoTracks(tracks: Tracks) {
-        val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
-        if (videoGroups.isEmpty()) {
-            Log.w("PlayerVM", "videoTrack: no video groups exposed")
-            return
-        }
-        for (group in videoGroups) {
-            val trackGroup = group.mediaTrackGroup
-            for (i in 0 until trackGroup.length) {
-                val format = trackGroup.getFormat(i)
-                Log.d(
-                    "PlayerVM",
-                    "videoTrack: id=${format.id} mime=${format.sampleMimeType} codecs=${format.codecs} ${format.width}x${format.height} supported=${group.isTrackSupported(i)} selected=${group.isTrackSelected(i)}"
-                )
-            }
         }
     }
 
@@ -413,47 +382,33 @@ class PlayerViewModel(
         }
     }
 
-    private fun parseSeasonEpisode(name: String): String? {
-        val patterns = listOf(
-            "(?i)S(\\d{1,2})\\s*[._-]?\\s*E(\\d{1,3})",
-            "(?i)\\b(\\d{1,2})\\s*[xX]\\s*(\\d{1,3})\\b",
-            "(?i)season\\s*(\\d{1,2}).*episode\\s*(\\d{1,3})",
-            "(?i)kp_\\d+_(\\d{1,2})_(\\d{1,3})"
-        )
-        
-        for (pattern in patterns) {
-            Regex(pattern).find(name)?.let { m ->
-                val s = m.groupValues[1].toIntOrNull()
-                val e = m.groupValues[2].toIntOrNull()
-                if (s != null && e != null) {
-                    return if (pattern.contains("x")) "%dx%02d".format(s, e) else "S%02dE%02d".format(s, e)
-                }
-            }
-        }
-        return null
-    }
+    private fun parseSeasonEpisode(name: String): String? = PlayerMetadataResolver.parseSeasonEpisode(name)
 
-    // For Alloha the proxy URL is always the same — use kpId+episodeIndex as unique key
     private fun progressKey(): String {
-        val mediaId = player.currentMediaItem?.mediaId ?: return ""
-        return "pos_$mediaId"
+        val mediaItem = player.currentMediaItem
+        val mediaId = mediaItem?.mediaId ?: return ""
+        return progressStore.buildProgressKey(
+            mediaId = mediaId,
+            displayName = mediaItem.mediaMetadata.extras?.getString("display_name").orEmpty(),
+            displayTitle = buildDisplayTitle(mediaItem),
+            kpId = kpId
+        )
     }
 
     fun clearCurrentProgress() {
         val key = progressKey().takeIf { it.isNotBlank() } ?: return
-        prefs.edit().remove(key).apply()
+        progressStore.clearPosition(key)
     }
 
     fun clearEpisodeProgress(episodeIndex: Int) {
-        if (kpId == null) return
-        prefs.edit().remove("pos_alloha_${kpId}_ep$episodeIndex").apply()
+        val id = kpId ?: return
+        progressStore.clearAllohaEpisodeProgress(id, episodeIndex)
     }
 
     fun updatePlaybackProgress() {
         val key = progressKey().takeIf { it.isNotBlank() } ?: return
         val position = player.currentPosition
-        val now = System.currentTimeMillis()
-        prefs.edit().putLong(key, position).apply()
+        progressStore.savePosition(key, position, player.duration.takeIf { it > 0L })
         savedStateHandle["position"] = position
         
         // Update Collaps episode progress if available
@@ -479,7 +434,7 @@ class PlayerViewModel(
                         cb(currentKpId, season, episode, position, duration)
                         return
                     }
-                    persistEpisodeProgress(currentKpId, season, episode, position, duration)
+                    progressStore.persistEpisodeProgress(currentKpId, season, episode, position, duration)
                     return
                 }
             }
@@ -493,105 +448,12 @@ class PlayerViewModel(
 
         // Persist generic (movie/non-episodic) progress by Kinopoisk ID so DetailsScreen can show resume.
         if (currentKpId != null) {
-            watchedPrefs.edit()
-                .putLong("kp_${currentKpId}_last_position", position)
-                .putLong("kp_${currentKpId}_last_duration", duration)
-                .putLong("kp_${currentKpId}_last_updated_at", now)
-                .apply()
+            progressStore.persistGenericKpProgress(currentKpId, position, duration)
         }
-    }
-
-    private fun persistEpisodeProgress(kpId: Int, season: Int, episode: Int, positionMs: Long, durationMs: Long) {
-        if (season <= 0 || episode <= 0) return
-        val watchedKey = "kp_${kpId}_s${season}_e${episode}"
-        val now = System.currentTimeMillis()
-        val watchedThresholdMs = if (durationMs > 0) {
-            val percentThreshold = (durationMs * 0.85f).toLong()
-            val creditsThreshold = durationMs - 180_000L
-            maxOf(percentThreshold, creditsThreshold)
-        } else {
-            Long.MAX_VALUE
-        }
-        val watched = durationMs > 0 && positionMs >= watchedThresholdMs
-        watchedPrefs.edit()
-            .putLong(watchedKey, positionMs)
-            .putBoolean("${watchedKey}_watched", watched)
-            .putLong("${watchedKey}_duration", durationMs)
-            .putLong("${watchedKey}_updated_at", now)
-            .putInt("kp_${kpId}_last_season", season)
-            .putInt("kp_${kpId}_last_episode", episode)
-            .putLong("kp_${kpId}_last_position", positionMs)
-            .putLong("kp_${kpId}_last_duration", durationMs)
-            .putLong("kp_${kpId}_last_updated_at", now)
-            .apply()
     }
 
     fun getSelectableTracks(trackType: @C.TrackType Int): List<SelectableTrack> {
-        val groups = player.currentTracks.groups.filter { it.type == trackType }
-        val result = ArrayList<SelectableTrack>()
-        var displayIndex = 1
-        val dedupeKeys = HashSet<String>()
-
-        for (group in groups) {
-            val trackGroup = group.mediaTrackGroup
-            for (i in 0 until trackGroup.length) {
-                val format = trackGroup.getFormat(i)
-                val label = format.label
-                val language = format.language
-                
-                val displayLabel = when {
-                    trackType == C.TRACK_TYPE_VIDEO && format.height > 0 -> "${format.height}p"
-                    trackType == C.TRACK_TYPE_AUDIO -> resolveAudioLabel(format.id, label)
-                    !label.isNullOrBlank() -> label
-                    !language.isNullOrBlank() && language != "und" -> language
-                    else -> "Track ${displayIndex++}"
-                }
-
-                val dedupeKey = when (trackType) {
-                    C.TRACK_TYPE_VIDEO -> "video:${format.height}:${displayLabel}"
-                    C.TRACK_TYPE_AUDIO -> "audio:${displayLabel}:${language ?: ""}"
-                    else -> "$trackType:${format.id}:${displayLabel}"
-                }
-                if (!dedupeKeys.add(dedupeKey)) continue
-
-                if (trackType == C.TRACK_TYPE_AUDIO) {
-                    Log.d(
-                        "PlayerVM",
-                        "audioTrack: id=${format.id} lang=${format.language} label=${format.label} display=$displayLabel supported=${group.isTrackSupported(i)} selected=${group.isTrackSelected(i)}"
-                    )
-                }
-
-                result += SelectableTrack(
-                    label = displayLabel,
-                    formatId = format.id,
-                    trackGroup = trackGroup,
-                    trackIndex = i,
-                    isSelected = group.isTrackSelected(i),
-                    isSupported = group.isTrackSupported(i),
-                    height = format.height
-                )
-            }
-        }
-
-        if (trackType == C.TRACK_TYPE_VIDEO) {
-            result.sortByDescending { it.height }
-        }
-        return result
-    }
-
-    private fun resolveAudioLabel(formatId: String?, fallbackLabel: String?): String {
-        val raw = fallbackLabel?.trim().orEmpty()
-        val idx = extractAudioIndex(formatId) ?: extractAudioIndex(raw)
-        val voice = idx?.let { episodeVoiceNames.getOrNull(it) }?.trim().orEmpty()
-        if (voice.isNotEmpty()) return voice
-        return raw.ifEmpty { "Audio" }
-    }
-
-    private fun extractAudioIndex(raw: String?): Int? {
-        if (raw.isNullOrBlank()) return null
-        val m = Regex("(?:^|[^a-z0-9])(?:rus|ru|eng|en|ukr|ua)(\\d+)(?:$|[^a-z0-9])", RegexOption.IGNORE_CASE)
-            .find(raw)
-        return m?.groupValues?.getOrNull(1)?.toIntOrNull()
+        return PlayerTrackSelectorDelegate.getSelectableTracks(player, trackType, episodeVoiceNames)
     }
 
     fun switchToTrack(trackType: @C.TrackType Int, index: Int) {
@@ -614,17 +476,12 @@ class PlayerViewModel(
             }
         }
 
-        val builder = player.trackSelectionParameters.buildUpon()
         if (index == -1) {
-            builder.clearOverridesOfType(trackType)
-                   .setTrackTypeDisabled(trackType, trackType == C.TRACK_TYPE_TEXT)
+            PlayerTrackSelectorDelegate.switchToTrack(player, trackType, null)
         } else {
             val track = getSelectableTracks(trackType).getOrNull(index) ?: return
-            builder.clearOverridesOfType(trackType)
-                   .setOverrideForType(TrackSelectionOverride(track.trackGroup, listOf(track.trackIndex)))
-                   .setTrackTypeDisabled(trackType, false)
+            PlayerTrackSelectorDelegate.switchToTrack(player, trackType, track)
         }
-        player.trackSelectionParameters = builder.build()
     }
 
     fun isVideoQualityAutoPreferred(): Boolean = prefersAutoVideoQuality
@@ -649,22 +506,8 @@ class PlayerViewModel(
 
     override fun onPlayerError(error: PlaybackException) {
         Log.e("PlayerVM", "Player error: ${error.errorCodeName}", error)
-        if (shouldFallbackToSoftwareDecoder(error)) {
+        if (PlayerPlaybackRecovery.shouldFallbackToSoftwareDecoder(error, preferSoftwareDecoder, useExo)) {
             fallbackToSoftwareDecoder()
-        }
-    }
-
-    private fun shouldFallbackToSoftwareDecoder(error: PlaybackException): Boolean {
-        if (preferSoftwareDecoder || !useExo) return false
-        return when (error.errorCode) {
-            PlaybackException.ERROR_CODE_DECODING_FAILED,
-            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-            PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
-            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-            PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED,
-            -> true
-            else -> false
         }
     }
 
@@ -693,20 +536,7 @@ class PlayerViewModel(
         episodeVoiceNames = args.voiceNames.orEmpty()
         _uiState.update { it.copy(fileLoaded = false) }
 
-        val mediaItems = args.urls.mapIndexed { index, url ->
-            val displayName = args.names?.getOrNull(index).orEmpty()
-            val extras = Bundle().apply { putString("display_name", displayName) }
-            MediaItem.Builder()
-                .setMediaId(url)
-                .setUri(url)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(baseTitle)
-                        .setExtras(extras)
-                        .build()
-                )
-                .build()
-        }
+        val mediaItems = PlayerMediaItemFactory.create(args.urls, args.names, baseTitle)
 
         val safeIndex = currentIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
         player.setMediaItems(mediaItems, safeIndex, currentPosition)
@@ -727,6 +557,8 @@ class PlayerViewModel(
     private fun reconcilePendingStartPosition() {
         val restoredPosition = pendingStartPositionMs ?: return
         pendingStartPositionMs = null
+        val savedDuration = pendingStartDurationMs
+        pendingStartDurationMs = null
 
         val duration = player.duration
         if (duration <= 0L) return
@@ -734,17 +566,25 @@ class PlayerViewModel(
         val progressKey = pendingProgressKey
         pendingProgressKey = null
 
-        val restartThresholdMs = minOf(60_000L, duration / 50)
-        val shouldRestartFromBeginning = restoredPosition >= duration || restoredPosition >= (duration - restartThresholdMs)
-
-        if (shouldRestartFromBeginning) {
+        val resetTo = progressStore.resetIfNearEnd(progressKey, restoredPosition, duration)
+        if (resetTo != null) {
             Log.d(
                 "PlayerVM",
                 "Resetting restored progress near the end: restored=$restoredPosition duration=$duration key=$progressKey"
             )
-            player.seekTo(0L)
-            if (!progressKey.isNullOrBlank()) {
-                prefs.edit().putLong(progressKey, 0L).apply()
+            player.seekTo(resetTo)
+            return
+        }
+
+        if (savedDuration != null && savedDuration > 0L && restoredPosition > 0L) {
+            val normalizedProgress = (restoredPosition.toDouble() / savedDuration.toDouble()).coerceIn(0.0, 0.999)
+            val normalizedTarget = (duration.toDouble() * normalizedProgress).toLong().coerceIn(0L, duration)
+            if (kotlin.math.abs(normalizedTarget - restoredPosition) > 2_000L) {
+                Log.d(
+                    "PlayerVM",
+                    "Normalizing restored progress across duration change: restored=$restoredPosition savedDuration=$savedDuration actualDuration=$duration target=$normalizedTarget key=$progressKey"
+                )
+                player.seekTo(normalizedTarget)
             }
         }
     }

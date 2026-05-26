@@ -1,5 +1,17 @@
 import Foundation
 
+public struct CollapsAVAudioVariant {
+    public let title: String
+    public let url: String
+    public let qualityVariants: [CollapsAVQualityOption]
+
+    public init(title: String, url: String, qualityVariants: [CollapsAVQualityOption] = []) {
+        self.title = title
+        self.url = url
+        self.qualityVariants = qualityVariants
+    }
+}
+
 public struct CollapsAVTrack: Codable {
     public let index: Int
     public let id: String
@@ -22,6 +34,7 @@ public struct CollapsAVQualityOption: Codable {
     public let height: Int?
     public let label: String
     public let isAuto: Bool
+    public let url: String?
 
     public func asDictionary() -> [String: Any] {
         [
@@ -29,7 +42,8 @@ public struct CollapsAVQualityOption: Codable {
             "bitrate": bitrate,
             "height": height as Any,
             "label": label,
-            "isAuto": isAuto
+            "isAuto": isAuto,
+            "url": url as Any
         ]
     }
 }
@@ -71,6 +85,8 @@ public struct CollapsAVPlaylistItem {
     public let episode: Int?
     public let voiceovers: [String]
     public let subtitles: [CollapsSubtitle]
+    public let audioVariants: [CollapsAVAudioVariant]
+    public let qualityVariants: [CollapsAVQualityOption]
 
     public init(
         mediaId: String,
@@ -80,7 +96,9 @@ public struct CollapsAVPlaylistItem {
         season: Int?,
         episode: Int?,
         voiceovers: [String] = [],
-        subtitles: [CollapsSubtitle] = []
+        subtitles: [CollapsSubtitle] = [],
+        audioVariants: [CollapsAVAudioVariant] = [],
+        qualityVariants: [CollapsAVQualityOption] = []
     ) {
         self.mediaId = mediaId
         self.title = title
@@ -90,5 +108,7 @@ public struct CollapsAVPlaylistItem {
         self.episode = episode
         self.voiceovers = voiceovers
         self.subtitles = subtitles
+        self.audioVariants = audioVariants
+        self.qualityVariants = qualityVariants
     }
 }

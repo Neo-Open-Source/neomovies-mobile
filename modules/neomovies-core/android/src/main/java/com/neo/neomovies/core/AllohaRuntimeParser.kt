@@ -3,6 +3,7 @@ package com.neo.neomovies.core
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
+import java.util.Locale
 
 object AllohaRuntimeParser {
 
@@ -62,17 +63,19 @@ object AllohaRuntimeParser {
                     }
                 }
 
-                val chosenURL = itemMasterURL ?: (itemVariants.lastOrNull()?.get("url") as? String)
+                val sortedItemVariants = itemVariants.sortedBy { qualityHeight((it["label"] as? String).orEmpty()) }
+                val chosenURL = itemMasterURL ?: (sortedItemVariants.lastOrNull()?.get("url") as? String)
                 if (chosenURL != null) {
                     audioVariants.add(mapOf(
                         "id" to "$i-$chosenURL",
                         "title" to audioVariantTitle(item, i),
                         "url" to chosenURL,
-                        "qualityVariants" to itemVariants
+                        "qualityVariants" to sortedItemVariants
                     ))
                 }
             }
 
+            qualityVariants.sortBy { qualityHeight((it["label"] as? String).orEmpty()) }
             val deduped = deduplicatedAudioVariants(audioVariants)
             val pickedURL = (deduped.firstOrNull()?.get("url") as? String)
                 ?: masterURL
@@ -106,61 +109,245 @@ object AllohaRuntimeParser {
     }
 
     private fun audioVariantTitle(item: JSONObject, index: Int): String {
-        item.optJSONObject("translation")?.optString("name")
-            ?.takeIf { it.isNotEmpty() }?.let { return it }
-
-        for (key in listOf("translationName", "translation_name", "translator", "studio", "voice", "voiceover", "dub", "dubbing", "name", "title", "label")) {
-            item.optString(key).takeIf { it.isNotEmpty() && it != "null" }?.let { return it }
-        }
-
+        firstAudioTitle(item)?.let { return it }
         return "Озвучка ${index + 1}"
+    }
+
+    private fun firstAudioTitle(value: Any?): String? {
+        when (value) {
+            is JSONObject -> {
+                for (key in preferredAudioTitleKeys) {
+                    stringTitle(value.opt(key))?.let { return it }
+                }
+                val keys = value.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    if (isLikelyAudioTitleKey(key)) {
+                        stringTitle(value.opt(key))?.let { return it }
+                    }
+                }
+                for (key in preferredAudioContainerKeys) {
+                    firstAudioTitle(value.opt(key))?.let { return it }
+                }
+                val allKeys = value.keys()
+                while (allKeys.hasNext()) {
+                    val key = allKeys.next()
+                    if (!isIgnoredAudioTitleContainer(key)) {
+                        firstAudioTitle(value.opt(key))?.let { return it }
+                    }
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until value.length()) {
+                    firstAudioTitle(value.opt(i))?.let { return it }
+                }
+            }
+        }
+        return null
+    }
+
+    private val preferredAudioTitleKeys = listOf(
+        "translation", "translationName", "translation_name", "translator", "translatorName", "translator_name",
+        "studio", "studioName", "studio_name", "voice", "voiceName", "voice_name", "voiceover", "dub",
+        "dubbing", "name", "title", "label"
+    )
+
+    private val preferredAudioContainerKeys = listOf("translation", "translator", "voice", "voiceover", "dub", "dubbing", "studio", "data")
+
+    private fun isLikelyAudioTitleKey(key: String): Boolean {
+        val lower = key.lowercase(Locale.ROOT)
+        return lower.contains("translation") ||
+            lower.contains("translator") ||
+            lower.contains("studio") ||
+            lower.contains("voice") ||
+            lower.contains("dub") ||
+            lower == "name" ||
+            lower == "title" ||
+            lower == "label"
+    }
+
+    private fun isIgnoredAudioTitleContainer(key: String): Boolean {
+        val lower = key.lowercase(Locale.ROOT)
+        return lower == "quality" ||
+            lower.contains("source") ||
+            lower.contains("hls") ||
+            lower.contains("url") ||
+            lower.contains("file")
+    }
+
+    private fun stringTitle(value: Any?): String? {
+        val raw = value as? String ?: return null
+        val clean = decodeJavaScriptString(raw)
+            .replace("_", " ")
+            .trim()
+        if (clean.isEmpty()) return null
+        if (clean.contains(".m3u8", ignoreCase = true)) return null
+        if (Regex("""^[a-zA-Z][a-zA-Z0-9+\-.]*://""").containsMatchIn(clean)) return null
+        return clean
     }
 
     private fun qualityURLStrings(value: Any): List<String> {
         return when (value) {
             is String -> value.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            is JSONArray -> (0 until value.length()).flatMap { qualityURLStrings(value.get(it)) }
+            is JSONArray -> (0 until value.length()).flatMap { index ->
+                value.opt(index)?.let { qualityURLStrings(it) } ?: emptyList()
+            }
+            is JSONObject -> {
+                val preferredKeys = listOf("url", "file", "src", "hls", "master", "manifest", "link")
+                val preferred = preferredKeys.flatMap { key ->
+                    value.opt(key)?.let { qualityURLStrings(it) } ?: emptyList()
+                }
+                if (preferred.isNotEmpty()) preferred
+                else {
+                    val all = mutableListOf<String>()
+                    val keys = value.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        value.opt(key)?.let { all += qualityURLStrings(it) }
+                    }
+                    all
+                }
+            }
             else -> emptyList()
         }
     }
 
-    private fun allohaURLs(raw: String, baseUrl: URI): List<String> {
-        val decoded = raw.replace("\\/", "/")
-        return decoded.split(" or ").mapNotNull { part ->
-            val clean = part.trim()
-            when {
-                clean.startsWith("//") -> "https:$clean"
-                clean.startsWith("http://") || clean.startsWith("https://") -> clean
-                else -> runCatching { baseUrl.resolve(clean).toString() }.getOrNull()
-            }
+    private fun splitAllohaURLList(rawValue: String): List<String> {
+        return rawValue.split(Regex("""\s+or\s+""", RegexOption.IGNORE_CASE))
+    }
+
+    private fun decodeJavaScriptString(value: String): String {
+        return value
+            .replace("\\/", "/")
+            .replace("\\u0026", "&")
+            .replace("\\u003d", "=")
+            .replace("\\u002f", "/")
+            .replace("\\u003a", ":")
+            .replace("\\u0025", "%")
+            .replace("\\n", "")
+            .replace("\\t", "")
+            .replace("\\\\", "\\")
+    }
+
+    private fun makeURL(rawValue: String, baseUrl: URI): String? {
+        val cleanValue = decodeJavaScriptString(rawValue)
+            .trim()
+            .trim('"', '\'')
+        if (cleanValue.isEmpty()) return null
+        return when {
+            cleanValue.startsWith("//") -> "https:$cleanValue"
+            cleanValue.startsWith("http://") || cleanValue.startsWith("https://") -> cleanValue
+            else -> runCatching { baseUrl.resolve(cleanValue).toString() }.getOrNull()
         }
     }
 
+    private fun isPlayable(url: String): Boolean {
+        val path = url.lowercase(Locale.ROOT)
+        return path.contains(".m3u8") || path.contains(".mpd") || path.contains(".mp4")
+    }
+
+    private fun qualityHeight(label: String): Int {
+        return label.lowercase(Locale.ROOT).replace("p", "").toIntOrNull() ?: 0
+    }
+
     private fun normalizedQualityLabel(label: String): String {
-        val clean = label.replace("_", " ").trim()
-        return if (clean.isEmpty()) "Auto" else clean
+        val clean = label.trim()
+        return when {
+            clean.isEmpty() -> "Поток"
+            clean.lowercase(Locale.ROOT).endsWith("p") -> clean
+            clean.toIntOrNull() != null -> "${clean}p"
+            else -> clean
+        }
+    }
+
+    private fun allohaURLs(raw: String, baseUrl: URI): List<String> {
+        return splitAllohaURLList(raw)
+            .map { it.trim() }
+            .mapNotNull { makeURL(it, baseUrl) }
+            .filter { isPlayable(it) }
     }
 
     private fun firstPreferredStreamURL(payload: String, baseUrl: URI): String? {
-        val pattern = Regex("""https?:\\/\\/[^\"'\s>]+\.(m3u8|mpd)[^\"'\s>]*""", RegexOption.IGNORE_CASE)
-        val match = pattern.find(payload) ?: return null
-        val value = match.value.replace("\\/", "/")
-        return runCatching { baseUrl.resolve(value).toString() }.getOrDefault(value)
+        val keys = listOf("hls", "dash", "mp4", "file", "url", "src", "stream", "manifest")
+        for (key in keys) {
+            val patterns = listOf(
+                """\b$key\s*:\s*"([^"]+)"""",
+                """\b$key\s*:\s*'([^']+)'""",
+                """\"$key\"\s*:\s*"([^"]+)"""",
+                """\"$key\"\s*:\s*'([^']+)'""",
+                """\b$key\s*=\s*"([^"]+)"""",
+                """\b$key\s*=\s*'([^']+)'"""
+            )
+            for (pattern in patterns) {
+                val value = firstCapture(payload, pattern) ?: continue
+                val url = makeURL(value, baseUrl) ?: continue
+                if (isPlayable(url)) return url
+            }
+        }
+        return firstURL(payload, listOf("m3u8", "mp4", "mpd"), baseUrl)
+            ?: firstEscapedURL(payload, listOf("m3u8", "mp4", "mpd"), baseUrl)
     }
 
     private fun subtitleTracks(payload: String, baseUrl: URI): List<Map<String, String>> {
-        val pattern = Regex("""https?:\\/\\/[^\"'\s>]+\.(vtt|srt)[^\"'\s>]*""", RegexOption.IGNORE_CASE)
-        return pattern.findAll(payload).mapNotNull { match ->
-            val value = match.value.replace("\\/", "/")
-            val url = runCatching { baseUrl.resolve(value).toString() }.getOrDefault(value)
-            mapOf("url" to url, "label" to "Subtitle", "language" to "ru")
+        val patterns = listOf(
+            """\{\s*"url"\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)"\s*,\s*"name"\s*:\s*"([^"]+)"""",
+            """\{\s*url\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)"\s*,\s*name\s*:\s*"([^"]+)"""",
+            """\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"url"\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)""""
+        )
+        val tracks = mutableListOf<Map<String, String>>()
+        patterns.forEach { pattern ->
+            tracks += subtitleTracksByPattern(payload, pattern, baseUrl)
+        }
+        if (tracks.isEmpty()) {
+            firstURL(payload, listOf("vtt", "srt"), baseUrl)?.let { url ->
+                tracks += mapOf("name" to "Субтитры", "url" to url)
+            }
+        }
+        val seen = mutableSetOf<String>()
+        return tracks.filter { track -> seen.add(track["url"].orEmpty()) }
+    }
+
+    private fun subtitleTracksByPattern(text: String, pattern: String, baseUrl: URI): List<Map<String, String>> {
+        val regex = Regex(pattern, setOf(RegexOption.IGNORE_CASE))
+        return regex.findAll(text).mapNotNull { match ->
+            if (match.groupValues.size < 3) return@mapNotNull null
+            val first = match.groupValues[1]
+            val second = match.groupValues[2]
+            val firstLower = first.lowercase(Locale.ROOT)
+            val urlCandidate = if (firstLower.contains(".vtt") || firstLower.contains(".srt")) first else second
+            val nameCandidate = if (urlCandidate == first) second else first
+            val url = makeURL(urlCandidate, baseUrl) ?: return@mapNotNull null
+            mapOf("name" to decodeJavaScriptString(nameCandidate), "url" to url)
         }.toList()
+    }
+
+    private fun firstCapture(text: String, pattern: String, captureGroup: Int = 1): String? {
+        val regex = Regex(pattern, setOf(RegexOption.IGNORE_CASE))
+        val match = regex.find(text) ?: return null
+        if (match.groupValues.size <= captureGroup) return null
+        return match.groupValues[captureGroup]
+    }
+
+    private fun firstURL(text: String, extensions: List<String>, baseUrl: URI): String? {
+        val ext = extensions.joinToString("|") { Regex.escape(it) }
+        val pattern = """https?:\/\/[^\s"'<>\\]+\.($ext)(?:\?[^\s"'<>\\]*)?"""
+        val value = firstCapture(text, pattern, captureGroup = 0) ?: return null
+        return makeURL(value, baseUrl)
+    }
+
+    private fun firstEscapedURL(text: String, extensions: List<String>, baseUrl: URI): String? {
+        val ext = extensions.joinToString("|") { Regex.escape(it) }
+        val pattern = """https?:\\\/\\\/[^\s"'<>]+\.($ext)(?:\?[^\s"'<>\\]*)?"""
+        val value = firstCapture(text, pattern, captureGroup = 0) ?: return null
+        return makeURL(value, baseUrl)
     }
 
     private fun embeddedJSONObjectCandidates(payload: String): List<String> {
         val candidates = mutableListOf<String>()
         candidates.addAll(balancedJSONObjectCandidates("\"hlsSource\"", payload))
         candidates.addAll(balancedJSONObjectCandidates("hlsSource", payload))
+        val pattern = Regex("""\{[^{}]*"hlsSource"\s*:\s*\[[\s\S]*?]\s*(?:,[\s\S]*?)?}""", RegexOption.IGNORE_CASE)
+        candidates.addAll(pattern.findAll(payload).map { it.value })
         return candidates.distinct()
     }
 

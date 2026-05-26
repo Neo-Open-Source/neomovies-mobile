@@ -5,7 +5,7 @@ import { Pressable, View } from 'react-native';
 import { MediaImage } from '@/components/cards/media-image';
 import { RatingsRow } from '@/components/media/ratings-row';
 import { ThemedText } from '@/components/themed-text';
-import { CollapsEpisode, CollapsCatalogSeries, CollapsSeason, getCollapsWatchProgress } from '@/native/collaps-parser';
+import { CollapsEpisode, CollapsCatalogSeries, CollapsSeason } from '@/native/collaps-parser';
 import { createMediaDetailsStyles } from '@/styles/media-details.styles';
 
 type ThemePalette = {
@@ -43,6 +43,7 @@ type SeriesEpisodesSectionProps = {
   setSelectedSeason: (season: number) => void;
   sortedEpisodes: CollapsEpisode[];
   episodeMetaMap: Record<string, EpisodeMeta>;
+  seasonProgressMap: Record<string, number>;
   resolveEpisodeStillUrl: (movieId?: string | null, season?: number, episode?: number, size?: 'small' | 'large') => string | null;
   onOpenEpisode: (season: number, episode: number) => void;
 };
@@ -64,6 +65,7 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
     setSelectedSeason,
     sortedEpisodes,
     episodeMetaMap,
+    seasonProgressMap,
     resolveEpisodeStillUrl,
     onOpenEpisode,
   } = props;
@@ -113,10 +115,7 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
         {sortedEpisodes.map((episode) => {
           const key = `${episode.season}-${episode.episode}`;
           const meta = episodeMetaMap[key];
-          const episodeProgress = canReadProgress
-            ? getCollapsWatchProgress(mediaIdNumber, episode.season, episode.episode)
-            : null;
-          const progress = Math.max(0, Math.min(episodeProgress?.progressPercent ?? 0, 100));
+          const progress = canReadProgress ? Math.max(0, Math.min(seasonProgressMap[key] ?? 0, 100)) : 0;
           const stillUri = resolveEpisodeStillUrl(detailsId, episode.season, episode.episode, 'small');
 
           return (
@@ -127,7 +126,7 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
                   <Pressable style={styles.episodePlayButton} onPress={() => onOpenEpisode(episode.season, episode.episode)}>
                     <Play size={14} strokeWidth={2.5} color="#FFFFFF" fill="#FFFFFF" />
                   </Pressable>
-                  {episodeProgress?.watched ? (
+                  {progress >= 95 ? (
                     <View style={styles.episodeWatchedBadge}>
                       <ThemedText style={styles.episodeWatchedText}>✓</ThemedText>
                     </View>

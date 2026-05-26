@@ -115,6 +115,10 @@ export type CollapsEmbedPayload = {
   iframeSource?: string | null;
 };
 
+const PROVIDER_EMBED_CACHE_TTL_MS = 1000 * 30;
+const providerEmbedCache = new Map<string, { expiresAt: number; value: CollapsEmbedPayload }>();
+const providerEmbedInflight = new Map<string, Promise<CollapsEmbedPayload>>();
+
 function extractIframeSource(html: string): string | null {
   const match = html.match(/<iframe[^>]+src=["']([^"']+)["']/i);
   if (!match?.[1]) return null;
@@ -128,6 +132,37 @@ export async function getProviderEmbedHtml(
   episode?: number
 ): Promise<CollapsEmbedPayload> {
   const rawId = mediaId.replace(/^kp_/, '');
+  const cacheKey = [provider, rawId, season ?? 0, episode ?? 0].join(':');
+  const cached = providerEmbedCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
+  const inflight = providerEmbedInflight.get(cacheKey);
+  if (inflight) return inflight;
+
+  const request = loadProviderEmbedHtml(rawId, provider, season, episode)
+    .then((result) => {
+      providerEmbedCache.set(cacheKey, {
+        expiresAt: Date.now() + PROVIDER_EMBED_CACHE_TTL_MS,
+        value: result,
+      });
+      return result;
+    })
+    .finally(() => {
+      providerEmbedInflight.delete(cacheKey);
+    });
+
+  providerEmbedInflight.set(cacheKey, request);
+  return request;
+}
+
+async function loadProviderEmbedHtml(
+  rawId: string,
+  provider: 'collaps' | 'alloha',
+  season?: number,
+  episode?: number
+): Promise<CollapsEmbedPayload> {
   const qs = new URLSearchParams();
   if (season) qs.set('season', String(season));
   if (episode) qs.set('episode', String(episode));

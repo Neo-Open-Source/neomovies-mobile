@@ -2,16 +2,28 @@ import Foundation
 import Network
 import os.log
 
-final class CollapsHLSProxyServer {
-    private static let logger = OSLog(subsystem: "com.neo.neomovies", category: "CollapsHLSProxy")
-    private let masterURL: URL
-    private let headers: [String: String]
+final class AllohaHLSProxyServer {
+    private static let logger = OSLog(subsystem: "com.neo.neomovies", category: "AllohaHLSProxy")
+    var onRecoverableUpstreamFailure: (() -> Void)?
+    private var masterURL: URL
+    private var headers: [String: String]
+    private let routeBase: String
+    private let masterPath: String
+    private let proxyPathPrefix: String
     private let queue = DispatchQueue(label: "ru.neomovies.hls-proxy")
+    private let stateLock = NSLock()
     private var listener: NWListener?
+    private var recoveryNotifiedAt: Date?
 
-    init(masterURL: URL, headers: [String: String]) {
+    init(masterURL: URL, headers: [String: String], routeBase: String) {
         self.masterURL = masterURL
         self.headers = headers
+        let sanitized = routeBase
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .replacingOccurrences(of: "//+", with: "/", options: .regularExpression)
+        self.routeBase = sanitized.isEmpty ? "stream" : sanitized
+        self.masterPath = "/\(self.routeBase)/master.m3u8"
+        self.proxyPathPrefix = "/\(self.routeBase)/proxy"
     }
 
     func start() throws -> URL {
@@ -38,16 +50,16 @@ final class CollapsHLSProxyServer {
         listener.start(queue: queue)
 
         if startSemaphore.wait(timeout: .now() + 3) == .timedOut {
-            throw CollapsHLSProxyError.startTimedOut
+            throw AllohaHLSProxyError.startTimedOut
         }
         if let startError {
             throw startError
         }
         guard let port = listener.port?.rawValue,
-              let url = URL(string: "http://127.0.0.1:\(port)/master.m3u8") else {
-            throw CollapsHLSProxyError.invalidLocalURL
+              let url = URL(string: "http://127.0.0.1:\(port)\(masterPath)") else {
+            throw AllohaHLSProxyError.invalidLocalURL
         }
-        os_log("start port=%{public}d master=%{public}s", log: Self.logger, type: .info, port, masterURL.absoluteString)
+        os_log("start port=%{public}d routeBase=%{public}s master=%{public}s", log: Self.logger, type: .info, port, routeBase, masterURL.absoluteString)
 
         return url
     }
@@ -56,6 +68,35 @@ final class CollapsHLSProxyServer {
         os_log("stop", log: Self.logger, type: .info)
         listener?.cancel()
         listener = nil
+    }
+
+    func updateMasterURL(_ url: URL) {
+        stateLock.lock()
+        masterURL = url
+        stateLock.unlock()
+        os_log("update master=%{public}s", log: Self.logger, type: .info, url.absoluteString)
+    }
+
+    func updateHeaders(_ newHeaders: [String: String]) {
+        stateLock.lock()
+        headers.merge(newHeaders) { _, new in new }
+        let count = headers.count
+        stateLock.unlock()
+        os_log("update headers count=%{public}d", log: Self.logger, type: .debug, count)
+    }
+
+    private func currentMasterURL() -> URL {
+        stateLock.lock()
+        let value = masterURL
+        stateLock.unlock()
+        return value
+    }
+
+    private func currentHeaders() -> [String: String] {
+        stateLock.lock()
+        let value = headers
+        stateLock.unlock()
+        return value
     }
 
     private func handle(_ connection: NWConnection) {
@@ -80,19 +121,19 @@ final class CollapsHLSProxyServer {
         }
     }
 
-    private func response(for request: CollapsHLSProxyRequest) async -> CollapsHLSProxyResponse {
+    private func response(for request: AllohaHLSProxyRequest) async -> AllohaHLSProxyResponse {
         os_log("request method=%{public}s path=%{public}s", log: Self.logger, type: .debug, request.method, request.path)
         if request.method == "HEAD" {
-            return CollapsHLSProxyResponse(status: 200, contentType: "application/octet-stream", headers: ["Accept-Ranges": "bytes"], body: Data())
+            return AllohaHLSProxyResponse(status: 200, contentType: "application/octet-stream", headers: ["Accept-Ranges": "bytes"], body: Data())
         }
 
-        if request.path.hasPrefix("/master.m3u8") {
-            return await playlistResponse(for: masterURL, request: request)
+        if request.path == masterPath {
+            return await playlistResponse(for: currentMasterURL(), request: request)
         }
 
-        guard request.path.hasPrefix("/proxy"),
+        guard request.path.hasPrefix(proxyPathPrefix),
               let originalURL = originalURL(from: request.path) else {
-            return CollapsHLSProxyResponse(status: 404, contentType: "text/plain", body: Data("Not Found".utf8))
+            return AllohaHLSProxyResponse(status: 404, contentType: "text/plain", body: Data("Not Found".utf8))
         }
 
         if originalURL.path.lowercased().contains(".m3u8") {
@@ -102,15 +143,15 @@ final class CollapsHLSProxyServer {
         return await dataResponse(for: originalURL, request: request)
     }
 
-    private func playlistResponse(for url: URL, request: CollapsHLSProxyRequest) async -> CollapsHLSProxyResponse {
+    private func playlistResponse(for url: URL, request: AllohaHLSProxyRequest) async -> AllohaHLSProxyResponse {
         do {
             let fetched = try await fetch(url, request: request)
             guard let playlist = String(data: fetched.data, encoding: .utf8) else {
-                return CollapsHLSProxyResponse(status: 502, contentType: "text/plain", body: Data("Invalid playlist".utf8))
+                return AllohaHLSProxyResponse(status: 502, contentType: "text/plain", body: Data("Invalid playlist".utf8))
             }
 
             let rewritten = rewritePlaylist(playlist, baseURL: url)
-            return CollapsHLSProxyResponse(
+            return AllohaHLSProxyResponse(
                 status: 200,
                 contentType: "application/vnd.apple.mpegurl",
                 headers: ["Accept-Ranges": "bytes"],
@@ -118,14 +159,14 @@ final class CollapsHLSProxyServer {
             )
         } catch {
             os_log("playlist error url=%{public}s err=%{public}s", log: Self.logger, type: .error, url.absoluteString, String(describing: error))
-            return CollapsHLSProxyResponse(status: 502, contentType: "text/plain", body: Data("Playlist fetch failed".utf8))
+            return AllohaHLSProxyResponse(status: 502, contentType: "text/plain", body: Data("Playlist fetch failed".utf8))
         }
     }
 
-    private func dataResponse(for url: URL, request: CollapsHLSProxyRequest) async -> CollapsHLSProxyResponse {
+    private func dataResponse(for url: URL, request: AllohaHLSProxyRequest) async -> AllohaHLSProxyResponse {
         do {
             let fetched = try await fetch(url, request: request)
-            return CollapsHLSProxyResponse(
+            return AllohaHLSProxyResponse(
                 status: fetched.status,
                 contentType: fetched.contentType ?? contentType(for: url),
                 headers: fetched.headers.merging(["Accept-Ranges": "bytes"]) { current, _ in current },
@@ -133,13 +174,13 @@ final class CollapsHLSProxyServer {
             )
         } catch {
             os_log("segment error url=%{public}s err=%{public}s", log: Self.logger, type: .error, url.absoluteString, String(describing: error))
-            return CollapsHLSProxyResponse(status: 502, contentType: "text/plain", body: Data("Segment fetch failed".utf8))
+            return AllohaHLSProxyResponse(status: 502, contentType: "text/plain", body: Data("Segment fetch failed".utf8))
         }
     }
 
-    private func fetch(_ url: URL, request incomingRequest: CollapsHLSProxyRequest) async throws -> CollapsHLSFetchResponse {
+    private func fetch(_ url: URL, request incomingRequest: AllohaHLSProxyRequest) async throws -> AllohaHLSFetchResponse {
         var request = URLRequest(url: url)
-        headers.forEach { key, value in request.setValue(value, forHTTPHeaderField: key) }
+        currentHeaders().forEach { key, value in request.setValue(value, forHTTPHeaderField: key) }
         if request.value(forHTTPHeaderField: "User-Agent") == nil {
             request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", forHTTPHeaderField: "User-Agent")
         }
@@ -156,15 +197,34 @@ final class CollapsHLSProxyServer {
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             let preview = String(data: data.prefix(200), encoding: .utf8) ?? "<non-utf8>"
             os_log("upstream fail status=%{public}d url=%{public}s body=%{public}s", log: Self.logger, type: .error, status, url.absoluteString, preview)
-            throw CollapsHLSProxyError.fetchFailed
+            notifyRecoverableFailureIfNeeded(status: status)
+            throw AllohaHLSProxyError.fetchFailed
         }
         os_log("upstream ok status=%{public}d url=%{public}s size=%{public}d", log: Self.logger, type: .debug, httpResponse.statusCode, url.absoluteString, data.count)
-        return CollapsHLSFetchResponse(
+        return AllohaHLSFetchResponse(
             status: httpResponse.statusCode,
             contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
             headers: forwardedResponseHeaders(from: httpResponse),
             data: data
         )
+    }
+
+    private func notifyRecoverableFailureIfNeeded(status: Int) {
+        guard [403, 404, 500, 502, 503].contains(status) else { return }
+        stateLock.lock()
+        let now = Date()
+        let shouldNotify: Bool
+        if let last = recoveryNotifiedAt, now.timeIntervalSince(last) < 5 {
+            shouldNotify = false
+        } else {
+            recoveryNotifiedAt = now
+            shouldNotify = true
+        }
+        let handler = onRecoverableUpstreamFailure
+        stateLock.unlock()
+        guard shouldNotify else { return }
+        os_log("trigger recoverable refresh status=%{public}d", log: Self.logger, type: .info, status)
+        handler?()
     }
 
     private func rewritePlaylist(_ playlist: String, baseURL: URL) -> String {
@@ -208,7 +268,7 @@ final class CollapsHLSProxyServer {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
         let port = listener?.port?.rawValue ?? 0
-        return URL(string: "http://127.0.0.1:\(port)/proxy?url=\(encoded)")!
+        return URL(string: "http://127.0.0.1:\(port)\(proxyPathPrefix)?url=\(encoded)")!
     }
 
     private func originalURL(from path: String) -> URL? {
@@ -225,7 +285,7 @@ final class CollapsHLSProxyServer {
         return URL(string: urlString)
     }
 
-    private func request(from rawRequest: String) -> CollapsHLSProxyRequest? {
+    private func request(from rawRequest: String) -> AllohaHLSProxyRequest? {
         let lines = rawRequest.components(separatedBy: "\r\n")
         let firstLine = lines.first ?? ""
         let parts = firstLine.split(separator: " ")
@@ -237,7 +297,7 @@ final class CollapsHLSProxyServer {
             guard split.count == 2 else { continue }
             headers[split[0].lowercased()] = split[1].trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        return CollapsHLSProxyRequest(method: String(parts[0]).uppercased(), path: String(parts[1]), headers: headers)
+        return AllohaHLSProxyRequest(method: String(parts[0]).uppercased(), path: String(parts[1]), headers: headers)
     }
 
     private func forwardedResponseHeaders(from response: HTTPURLResponse) -> [String: String] {
@@ -285,27 +345,27 @@ final class CollapsHLSProxyServer {
     }
 }
 
-private struct CollapsHLSProxyResponse {
+private struct AllohaHLSProxyResponse {
     let status: Int
     let contentType: String
     var headers: [String: String] = [:]
     let body: Data
 }
 
-private struct CollapsHLSProxyRequest {
+private struct AllohaHLSProxyRequest {
     let method: String
     let path: String
     let headers: [String: String]
 }
 
-private struct CollapsHLSFetchResponse {
+private struct AllohaHLSFetchResponse {
     let status: Int
     let contentType: String?
     let headers: [String: String]
     let data: Data
 }
 
-private enum CollapsHLSProxyError: Error {
+private enum AllohaHLSProxyError: Error {
     case startTimedOut
     case invalidLocalURL
     case fetchFailed

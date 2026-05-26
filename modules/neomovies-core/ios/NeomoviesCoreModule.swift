@@ -4,6 +4,12 @@ import Foundation
 public class NeomoviesCoreModule: Module {
   private var didBindPlayerCallbacks = false
 
+  private func clampedProgressPercent(positionMs: Int, durationMs: Int) -> Int {
+    guard positionMs > 0, durationMs > 0 else { return 0 }
+    let raw = Int((Double(positionMs) / Double(durationMs)) * 100.0)
+    return min(max(raw, 0), 100)
+  }
+
   public func definition() -> ModuleDefinition {
     Name("NeomoviesCore")
     Events("onAVPlayerStateChanged", "onAVPlayerProgress", "onAVPlayerEpisodeChanged")
@@ -95,21 +101,20 @@ public class NeomoviesCoreModule: Module {
     }
 
     AsyncFunction("fetchUrlTextInsecure") { (url: String, referer: String?, origin: String?) -> String in
-      return try await CollapsHTTPClient.fetchInsecure(
+      return try await CollapsHTTPClient.fetch(
         url: url,
         referer: referer,
         origin: origin
       )
     }
 
-    AsyncFunction("fetchAllohaSeriesCatalog") { (kpId: String, token: String) -> [String: Any] in
-      let encodedToken = token.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? token
+    AsyncFunction("fetchAllohaSeriesCatalog") { (kpId: String, _token: String) -> [String: Any] in
       let encodedKp = kpId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kpId
-      let url = "https://api.alloha.tv/?token=\(encodedToken)&kp=\(encodedKp)"
-      let body = try await CollapsHTTPClient.fetchInsecure(
+      let url = "https://api.neomovies.ru/api/v1/alloha/catalog/kp/\(encodedKp)"
+      let body = try await CollapsHTTPClient.fetch(
         url: url,
-        referer: "https://api.alloha.tv/",
-        origin: "https://api.alloha.tv"
+        referer: "https://api.neomovies.ru/",
+        origin: "https://api.neomovies.ru"
       )
       guard
         let data = body.data(using: .utf8),
@@ -244,66 +249,20 @@ public class NeomoviesCoreModule: Module {
     }
 
     AsyncFunction("resolveAllohaPlayableFromIframe") { (iframeUrl: String) -> [String: Any] in
-      var visited = Set<String>()
-      var currentUrl = iframeUrl
-      var lastReason = "unknown"
-
+      var lastError: Error?
       for _ in 0..<3 {
-        if visited.contains(currentUrl) { break }
-        visited.insert(currentUrl)
-        guard let current = URL(string: currentUrl) else { break }
-        let origin = "\(current.scheme ?? "https")://\(current.host ?? "")"
-        let html = try await CollapsHTTPClient.fetchInsecure(
-          url: currentUrl,
-          referer: "\(origin)/",
-          origin: origin
-        )
-
-        let parsed = AllohaRuntimeParser.parsePayload(html, baseURL: origin, headers: [
-          "Referer": "\(origin)/",
-          "Origin": origin
-        ]) ?? [:]
-        if let variants = parsed["audioVariants"] as? [[String: Any]] {
-          if let url = variants.first(where: { (($0["url"] as? String) ?? "").isEmpty == false })?["url"] as? String {
-            return ["url": url, "subtitles": parsed["subtitles"] ?? []]
-          }
+        do {
+          let resolver = await MainActor.run { AllohaRuntimeResolver() }
+          return try await resolver.resolve(iframeUrl: iframeUrl)
+        } catch {
+          lastError = error
         }
-        if let url = parsed["videoURL"] as? String, !url.isEmpty {
-          return ["url": url, "subtitles": parsed["subtitles"] ?? []]
-        }
-
-        let patterns = [
-          #"https?:\\\/\\\/[^\"'\s>]+\.(m3u8|mpd)[^\"'\s>]*"#,
-          #"https?://[^\"'\s>]+\.(m3u8|mpd)[^\"'\s>]*"#,
-        ]
-        for pattern in patterns {
-          if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
-            let nsrange = NSRange(html.startIndex..<html.endIndex, in: html)
-            if let m = regex.firstMatch(in: html, options: [], range: nsrange),
-               let range = Range(m.range, in: html) {
-              let raw = String(html[range]).replacingOccurrences(of: "\\/", with: "/")
-              let resolved = URL(string: raw, relativeTo: URL(string: origin))?.absoluteString ?? raw
-              return ["url": resolved, "subtitles": parsed["subtitles"] ?? []]
-            }
-          }
-        }
-
-        if let iframeRegex = try? NSRegularExpression(pattern: #"<iframe[^>]+src=["']([^"']+)["']"#, options: [.caseInsensitive]) {
-          let nsrange = NSRange(html.startIndex..<html.endIndex, in: html)
-          if let m = iframeRegex.firstMatch(in: html, options: [], range: nsrange),
-             let range = Range(m.range(at: 1), in: html) {
-            let nested = String(html[range])
-            currentUrl = URL(string: nested, relativeTo: URL(string: currentUrl))?.absoluteString ?? nested
-            lastReason = "nested_iframe_followed"
-            continue
-          }
-        }
-
-        lastReason = "no_stream_no_iframe"
-        break
       }
-
-      throw NSError(domain: "NeomoviesCore", code: 1, userInfo: [NSLocalizedDescriptionKey: "Alloha runtime parser did not return playable URL (\(lastReason))"])
+      throw lastError ?? NSError(
+        domain: "NeomoviesCore",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Alloha runtime parser did not return playable URL (retry exhausted)"]
+      )
     }
 
     OnCreate {
@@ -319,7 +278,8 @@ public class NeomoviesCoreModule: Module {
         season: nil,
         episode: nil,
         voiceovers: [],
-        subtitles: []
+        subtitles: [],
+        audioVariants: []
       )
       _ = try CollapsAVPlayerController.shared.configurePlaylist(items: [item], startIndex: 0, autoplay: autoplay)
       if let startPositionSec {
@@ -353,6 +313,25 @@ public class NeomoviesCoreModule: Module {
               label: $0["label"] ?? "",
               language: $0["language"] ?? ""
             )
+          },
+          audioVariants: (dict["audioVariants"] as? [[String: Any]] ?? []).compactMap { variant in
+            guard let vurl = variant["url"] as? String, !vurl.isEmpty else { return nil }
+            let title = (variant["title"] as? String) ?? ""
+            let qualityVariants = (variant["qualityVariants"] as? [[String: Any]] ?? []).compactMap { quality -> CollapsAVQualityOption? in
+              guard let qurl = quality["url"] as? String, !qurl.isEmpty else { return nil }
+              let label = (quality["label"] as? String) ?? "Stream"
+              let bitrate = quality["bitrate"] as? Double ?? quality["bandwidth"] as? Double ?? 0
+              let height = quality["height"] as? Int
+              return CollapsAVQualityOption(index: 0, bitrate: bitrate, height: height, label: label, isAuto: false, url: qurl)
+            }
+            return CollapsAVAudioVariant(title: title, url: vurl, qualityVariants: qualityVariants)
+          },
+          qualityVariants: (dict["qualityVariants"] as? [[String: Any]] ?? []).compactMap { quality -> CollapsAVQualityOption? in
+            guard let qurl = quality["url"] as? String, !qurl.isEmpty else { return nil }
+            let label = (quality["label"] as? String) ?? "Stream"
+            let bitrate = quality["bitrate"] as? Double ?? quality["bandwidth"] as? Double ?? 0
+            let height = quality["height"] as? Int
+            return CollapsAVQualityOption(index: 0, bitrate: bitrate, height: height, label: label, isAuto: false, url: qurl)
           }
         )
       }
@@ -372,18 +351,18 @@ public class NeomoviesCoreModule: Module {
       }
     }
 
-    AsyncFunction("avPlayerSelectEpisode") { (index: Int, autoplay: Bool) throws -> [String: Any] in
-      let state = try CollapsAVPlayerController.shared.selectEpisode(index: index, autoplay: autoplay)
+    AsyncFunction("avPlayerSelectEpisode") { (index: Int, autoplay: Bool) async throws -> [String: Any] in
+      let state = try await CollapsAVPlayerController.shared.selectEpisodeAsync(index: index, autoplay: autoplay)
       return state.asDictionary()
     }
 
-    AsyncFunction("avPlayerNextEpisode") { (autoplay: Bool) throws -> [String: Any] in
-      let state = try CollapsAVPlayerController.shared.nextEpisode(autoplay: autoplay)
+    AsyncFunction("avPlayerNextEpisode") { (autoplay: Bool) async throws -> [String: Any] in
+      let state = try await CollapsAVPlayerController.shared.nextEpisodeAsync(autoplay: autoplay)
       return state.asDictionary()
     }
 
-    AsyncFunction("avPlayerPreviousEpisode") { (autoplay: Bool) throws -> [String: Any] in
-      let state = try CollapsAVPlayerController.shared.previousEpisode(autoplay: autoplay)
+    AsyncFunction("avPlayerPreviousEpisode") { (autoplay: Bool) async throws -> [String: Any] in
+      let state = try await CollapsAVPlayerController.shared.previousEpisodeAsync(autoplay: autoplay)
       return state.asDictionary()
     }
 
@@ -463,7 +442,7 @@ public class NeomoviesCoreModule: Module {
       let durationMs = Int(store.loadDuration(mediaId: mediaId) * 1000)
       let watched = store.loadWatched(mediaId: mediaId)
       let updatedAtMs = store.loadUpdatedAtMs(mediaId: mediaId)
-      let progressPercent = durationMs > 0 ? Int(Double(positionMs) / Double(durationMs) * 100.0) : 0
+      let progressPercent = clampedProgressPercent(positionMs: positionMs, durationMs: durationMs)
 
       let lastMediaId: String
       if let ls = lastSeason, let le = lastEpisode {
@@ -525,7 +504,7 @@ public class NeomoviesCoreModule: Module {
         let durationMs   = Int(store.loadDuration(mediaId: mediaId) * 1000)
         let watched      = store.loadWatched(mediaId: mediaId)
         let updatedAtMs  = store.loadUpdatedAtMs(mediaId: mediaId)
-        let progressPercent = durationMs > 0 ? Int(Double(positionMs) / Double(durationMs) * 100.0) : 0
+        let progressPercent = clampedProgressPercent(positionMs: positionMs, durationMs: durationMs)
 
         records.append([
           "schemaVersion": 1,

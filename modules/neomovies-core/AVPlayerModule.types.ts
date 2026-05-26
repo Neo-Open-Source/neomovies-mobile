@@ -14,6 +14,7 @@ export type AVPlayerQualityOption = {
   height: number | null;
   label: string;
   isAuto: boolean;
+  url?: string | null;
 };
 
 export type AVPlayerState = {
@@ -46,6 +47,22 @@ export type AVPlayerModule = {
       episode?: number;
       voiceovers?: string[];
       subtitles?: CollapsSubtitle[];
+      audioVariants?: Array<{
+        title: string;
+        url: string;
+        qualityVariants?: Array<{
+          label: string;
+          url: string;
+          bitrate?: number | null;
+          height?: number | null;
+        }>;
+      }>;
+      qualityVariants?: Array<{
+        label: string;
+        url: string;
+        bitrate?: number | null;
+        height?: number | null;
+      }>;
     }>,
     startIndex: number,
     autoplay: boolean,
