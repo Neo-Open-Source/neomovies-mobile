@@ -36,10 +36,10 @@ export type MediaDetails = {
     tmdb?: number | null;
     imdb?: number | null;
   };
-  genres?: Array<{
+  genres?: {
     id: string;
     name: string;
-  }>;
+  }[];
 };
 
 export type TvEpisodeDetails = {

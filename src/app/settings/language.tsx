@@ -1,5 +1,6 @@
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import { Image } from 'expo-image';
+import { FlashList } from '@shopify/flash-list';
 
 import { useI18n } from '@/i18n';
 import { SelectionItem } from '@/components/selection-item';
@@ -34,12 +35,17 @@ export default function LanguageSelectionScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {LANGUAGES.map((lang) => {
+      <FlashList
+        data={LANGUAGES}
+        keyExtractor={(item) => item.code}
+        estimatedItemSize={86}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+        ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
+        renderItem={({ item: lang }) => {
           const isSelected = locale === lang.code;
           return (
             <SelectionItem
-              key={lang.code}
               title={lang.nativeName}
               selected={isSelected}
               onPress={() => handleSelectLanguage(lang.code)}
@@ -56,8 +62,8 @@ export default function LanguageSelectionScreen() {
               }
             />
           );
-        })}
-      </ScrollView>
+        }}
+      />
     </ThemedView>
   );
 }

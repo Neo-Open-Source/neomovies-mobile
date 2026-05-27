@@ -1,10 +1,9 @@
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   TextInput,
   useWindowDimensions,
@@ -12,18 +11,18 @@ import {
 } from 'react-native';
 import { Clock3, Search, X } from 'lucide-react-native';
 
+import { AppStatusEmptyState } from '@/components/app-status-empty-state';
 import { PosterCard } from '@/components/cards/poster-card';
+import { Spacing } from '@/constants/theme';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useSearchScreen } from '@/hooks/use-search-screen';
 import { useTheme } from '@/hooks/use-theme';
 import { useI18n } from '@/i18n';
+import { getOfflineModeSnapshot, subscribeOfflineMode } from '@/lib/offline-mode';
+import { setRouteHasCache } from '@/lib/screen-cache-state';
 import { createSearchScreenStyles } from '@/styles/search-screen.styles';
 import { SearchResultItem } from '@/types/api';
-
-const SEARCH_CARD_MIN_WIDTH = 150;
-const SEARCH_CARD_GAP = 16;
-const SEARCH_SKELETON_COUNT = 10;
 
 type GridItem = { kind: 'result'; value: SearchResultItem } | { kind: 'skeleton'; id: string };
 
@@ -31,11 +30,14 @@ export default function SearchScreen() {
   const { copy } = useI18n();
   const theme = useTheme();
   const { width } = useWindowDimensions();
+  const contentPaddingHorizontal = Spacing.four;
+  const searchCardGap = Spacing.three;
+  const minCardWidth = 140;
   const columns = Math.max(
     1,
     Math.floor(
-      (Math.max(width - 32, SEARCH_CARD_MIN_WIDTH) + SEARCH_CARD_GAP) /
-        (SEARCH_CARD_MIN_WIDTH + SEARCH_CARD_GAP)
+      (Math.max(width - contentPaddingHorizontal * 2, minCardWidth) + searchCardGap) /
+        (minCardWidth + searchCardGap)
     )
   );
   const styles = createSearchScreenStyles(theme);
@@ -43,7 +45,6 @@ export default function SearchScreen() {
     query,
     setQuery,
     loading,
-    loadingMore,
     error,
     results,
     recentQueries,
@@ -55,12 +56,22 @@ export default function SearchScreen() {
     trackCurrentQuery,
   } = useSearchScreen();
   const [refreshing, setRefreshing] = useState(false);
+  const [offlineEnabled, setOfflineEnabled] = useState(getOfflineModeSnapshot().enabled);
+
+  useEffect(() => {
+    const unsubscribe = subscribeOfflineMode((next) => setOfflineEnabled(next.enabled));
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    setRouteHasCache('explore', results.length > 0);
+  }, [results.length]);
 
   const cardWidth = useMemo(() => {
-    const contentWidth = Math.max(width - 32, SEARCH_CARD_MIN_WIDTH);
-    const totalGaps = SEARCH_CARD_GAP * Math.max(columns - 1, 0);
+    const contentWidth = Math.max(width - contentPaddingHorizontal * 2, minCardWidth);
+    const totalGaps = searchCardGap * Math.max(columns - 1, 0);
     return Math.floor((contentWidth - totalGaps) / columns);
-  }, [columns, width]);
+  }, [columns, contentPaddingHorizontal, minCardWidth, searchCardGap, width]);
 
   const dynamicStyles = useMemo(
     () =>
@@ -73,17 +84,20 @@ export default function SearchScreen() {
           flexBasis: cardWidth,
           alignSelf: 'flex-start',
         },
+        gridItemSpacing: {
+          marginBottom: searchCardGap,
+        },
       }),
-    [cardWidth]
+    [cardWidth, searchCardGap]
   );
 
   const skeletonItems = useMemo<GridItem[]>(
     () =>
-      Array.from({ length: SEARCH_SKELETON_COUNT }, (_, index) => ({
+      Array.from({ length: Math.max(columns * 3, 9) }, (_, index) => ({
         kind: 'skeleton',
         id: `s-${index}`,
       })),
-    []
+    [columns]
   );
   const gridData = useMemo<GridItem[]>(() => {
     if (loading && results.length === 0) {
@@ -92,16 +106,21 @@ export default function SearchScreen() {
     return results.map((value) => ({ kind: 'result', value }));
   }, [loading, results, skeletonItems]);
 
-  const renderGridItem = ({ item }: { item: GridItem }) => {
+  const renderGridItem = ({ item, index }: { item: GridItem; index: number }) => {
+    const isLastColumn = columns > 1 && (index + 1) % columns === 0;
+    const spacingStyle = [
+      dynamicStyles.gridItemSpacing,
+      !isLastColumn ? { marginRight: searchCardGap } : null,
+    ];
     if (item.kind === 'skeleton') {
       return (
-        <View style={[styles.gridItem, dynamicStyles.gridItem]}>
+        <View style={[styles.gridItem, dynamicStyles.gridItem, spacingStyle]}>
           <ThemedView type="backgroundSelected" style={styles.gridSkeleton} />
         </View>
       );
     }
     return (
-      <View style={[styles.gridItem, dynamicStyles.gridItem]}>
+      <View style={[styles.gridItem, dynamicStyles.gridItem, spacingStyle]}>
         <Pressable
           onPress={() => {
             void trackCurrentQuery();
@@ -124,6 +143,16 @@ export default function SearchScreen() {
       setRefreshing(false);
     }
   };
+
+  if (!loading && offlineEnabled && results.length === 0) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={[styles.content, { justifyContent: 'center', flex: 1, paddingHorizontal: 16 }]}>
+          <AppStatusEmptyState />
+        </View>
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
@@ -170,12 +199,15 @@ export default function SearchScreen() {
                 <ThemedText style={styles.recentTitle} themeColor="textSecondary">
                   {copy.search.recentTitle}
                 </ThemedText>
-                <ScrollView
+                <FlatList
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.recentRow}>
-                  {recentQueries.map((item) => (
-                    <View key={item} style={styles.recentChip}>
+                  data={recentQueries}
+                  keyExtractor={(item) => item}
+                  contentContainerStyle={styles.recentRow}
+                  ItemSeparatorComponent={() => <View style={styles.recentItemSeparator} />}
+                  renderItem={({ item }) => (
+                    <View style={styles.recentChip}>
                       <View style={styles.recentChipIconWrap}>
                         <Clock3 size={13} strokeWidth={2.2} color={theme.textSecondary} />
                       </View>
@@ -188,20 +220,23 @@ export default function SearchScreen() {
                         <X size={14} strokeWidth={2.4} color={theme.textSecondary} />
                       </Pressable>
                     </View>
-                  ))}
-                </ScrollView>
+                  )}
+                />
               </View>
             ) : null}
 
-            {error ? (
+            {error && !offlineEnabled ? (
               <ThemedText type="small" themeColor="danger">
                 {copy.search.loadError}: {error}
               </ThemedText>
             ) : null}
+
           </View>
         }
         ListEmptyComponent={
-          !loading ? <ThemedText style={styles.emptyState}>{copy.search.emptyState}</ThemedText> : null
+          !loading && !offlineEnabled ? (
+            <ThemedText style={styles.emptyState}>{copy.search.emptyState}</ThemedText>
+          ) : null
         }
         ListFooterComponent={null}
       />

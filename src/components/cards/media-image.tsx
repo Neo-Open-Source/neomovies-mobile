@@ -7,24 +7,31 @@ import { mediaImageStyles } from '@/components/cards/media-image.styles';
 
 type MediaImageProps = {
   primaryUri: string | null;
-  fallbackUris?: Array<string | null | undefined>;
+  fallbackUris?: (string | null | undefined)[];
   style?: StyleProp<ViewStyle>;
   imageKey?: string;
+  priority?: 'low' | 'normal' | 'high';
 };
 
-export function MediaImage({ primaryUri, fallbackUris = [], style, imageKey }: MediaImageProps) {
+const loadedUriMemory = new Set<string>();
+
+export function MediaImage({ primaryUri, fallbackUris = [], style, imageKey, priority = 'normal' }: MediaImageProps) {
   const sourceList = useMemo(() => {
     const list = [primaryUri, ...fallbackUris].filter((item): item is string => Boolean(item));
     return Array.from(new Set(list));
   }, [fallbackUris, primaryUri]);
   const sourceKey = useMemo(() => sourceList.join('|'), [sourceList]);
   const [sourceIndex, setSourceIndex] = useState(0);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(() => {
+    const firstUri = sourceList[0];
+    return firstUri ? loadedUriMemory.has(firstUri) : false;
+  });
 
   useEffect(() => {
     setSourceIndex(0);
-    setLoaded(false);
-  }, [sourceKey]);
+    const firstUri = sourceList[0];
+    setLoaded(firstUri ? loadedUriMemory.has(firstUri) : false);
+  }, [sourceKey, sourceList]);
 
   const onImageError = () => {
     if (sourceIndex + 1 < sourceList.length) {
@@ -49,8 +56,11 @@ export function MediaImage({ primaryUri, fallbackUris = [], style, imageKey }: M
           contentFit="cover"
           transition={0}
           cachePolicy="memory-disk"
-          priority="high"
-          onLoad={() => setLoaded(true)}
+          priority={priority}
+          onLoad={() => {
+            if (resolvedUri) loadedUriMemory.add(resolvedUri);
+            setLoaded(true);
+          }}
           onError={onImageError}
         />
       ) : null}

@@ -15,12 +15,12 @@ export type WatchPlayerLaunchParams = {
 export type ResolvedAllohaPlayable = {
   url: string;
   subtitles: CollapsSubtitle[];
-  audioVariants?: Array<{
+  audioVariants?: {
     title: string;
     url: string;
-    qualityVariants?: Array<{ label: string; url: string; bitrate?: number | null; height?: number | null }>;
-  }>;
-  qualityVariants?: Array<{ label: string; url: string; bitrate?: number | null; height?: number | null }>;
+    qualityVariants?: { label: string; url: string; bitrate?: number | null; height?: number | null }[];
+  }[];
+  qualityVariants?: { label: string; url: string; bitrate?: number | null; height?: number | null }[];
   headers?: Record<string, string>;
 };
 

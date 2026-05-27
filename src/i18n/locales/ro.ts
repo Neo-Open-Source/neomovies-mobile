@@ -82,4 +82,13 @@ export const ro: Dictionary = {
     sourceAlternativeTitle: 'Alloha',
     sourceAlternativeDesc: 'Provider Alloha',
   },
+  appStatus: {
+    offlineBanner: 'Mod offline activ.',
+    offlineNoCache: 'Datele din cache nu sunt disponibile încă.',
+    offlineSearchUnavailable: 'Căutarea este temporar indisponibilă în modul offline.',
+    noInternetTitle: 'Fără internet',
+    noInternetDescription: 'Verifică conexiunea la Wi-Fi sau date mobile.',
+    maintenanceTitle: 'Mentenanță',
+    maintenanceDescription: 'Serviciul este temporar indisponibil. Încearcă mai târziu.',
+  },
 };

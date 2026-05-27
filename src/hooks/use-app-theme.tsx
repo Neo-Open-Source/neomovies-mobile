@@ -1,5 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 const THEME_MODE_KEY = 'neomovies_theme_mode_v1';
 
@@ -36,20 +36,20 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const setMode = (nextMode: ThemeMode) => {
+  const setMode = useCallback((nextMode: ThemeMode) => {
     setModeState(nextMode);
     void SecureStore.setItemAsync(THEME_MODE_KEY, nextMode);
-  };
+  }, []);
 
   const resolvedTheme: ResolvedTheme = useMemo(() => mode, [mode]);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setMode(resolvedTheme === 'dark' ? 'light' : 'dark');
-  };
+  }, [resolvedTheme, setMode]);
 
   const value = useMemo(
     () => ({ mode, resolvedTheme, setMode, toggleTheme }),
-    [mode, resolvedTheme]
+    [mode, resolvedTheme, setMode, toggleTheme]
   );
 
   return <AppThemeContext.Provider value={value}>{children}</AppThemeContext.Provider>;

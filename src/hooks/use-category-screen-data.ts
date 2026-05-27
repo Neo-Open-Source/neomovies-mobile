@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 
 import { getPopularMovies, getTopFilms, getTopSeries } from '@/lib/neomovies-api';
+import { getOfflineModeSnapshot, subscribeOfflineMode } from '@/lib/offline-mode';
 import { PopularMovie } from '@/types/api';
 
 type CategoryKind = 'popular' | 'top-films' | 'top-series';
@@ -44,6 +45,7 @@ async function getCategoryPage(kind: CategoryKind, page: number) {
 }
 
 export function useCategoryScreenData(kind: CategoryKind) {
+  const [offlineState, setOfflineState] = useState(getOfflineModeSnapshot());
   const initialCache = memoryCache[kind] ?? null;
   const [loading, setLoading] = useState(initialCache === null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -54,6 +56,17 @@ export function useCategoryScreenData(kind: CategoryKind) {
   const requestIdRef = useRef(0);
 
   const loadPage = async (requestedPage: number, append: boolean, options?: { clearError?: boolean }) => {
+    if (offlineState.enabled) {
+      const cached = memoryCache[kind];
+      if (!cached || cached.items.length === 0) {
+        setError('Offline mode is enabled, but no cached data is available yet.');
+      } else {
+        setError(null);
+      }
+      setLoading(false);
+      setLoadingMore(false);
+      return;
+    }
     const requestId = append ? requestIdRef.current : requestIdRef.current + 1;
     if (!append) {
       requestIdRef.current = requestId;
@@ -101,6 +114,10 @@ export function useCategoryScreenData(kind: CategoryKind) {
   };
 
   useEffect(() => {
+    return subscribeOfflineMode(setOfflineState);
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
     requestIdRef.current += 1;
 
@@ -137,6 +154,13 @@ export function useCategoryScreenData(kind: CategoryKind) {
       // Always refresh first page in background to keep category fresh.
       // We keep existing cards on screen and only replace if server has changes.
       const previous = memoryCache[kind] ?? null;
+      if (offlineState.enabled) {
+        setLoading(false);
+        if (!previous || (previous.items?.length ?? 0) === 0) {
+          setError('Offline mode is enabled, but no cached data is available yet.');
+        }
+        return;
+      }
       try {
         const response = await getCategoryPage(kind, 1);
         if (!mounted) return;
@@ -162,7 +186,7 @@ export function useCategoryScreenData(kind: CategoryKind) {
     return () => {
       mounted = false;
     };
-  }, [kind]);
+  }, [kind, offlineState.enabled]);
 
   const hasNextPage = page > 0 && page < totalPages;
 

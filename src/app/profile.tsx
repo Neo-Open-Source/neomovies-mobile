@@ -1,7 +1,8 @@
 import { Image } from 'expo-image';
-import { ChevronRight, Info, LogIn, LogOut, Settings, Sparkles } from 'lucide-react-native';
+import { ChevronRight, Info, LogIn, LogOut, Settings } from 'lucide-react-native';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -32,7 +33,13 @@ export default function ProfileScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <FlashList
+        data={[{ id: 'profile' }]}
+        keyExtractor={(item) => item.id}
+        estimatedItemSize={760}
+        showsVerticalScrollIndicator={false}
+        renderItem={() => (
+          <View style={styles.content}>
         <View style={styles.profileCard}>
           {isAuthenticated && profile?.avatar ? (
             <Image 
@@ -90,7 +97,9 @@ export default function ProfileScreen() {
           </Pressable>
         ) : null}
         {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
-      </ScrollView>
+          </View>
+        )}
+      />
     </ThemedView>
   );
 }

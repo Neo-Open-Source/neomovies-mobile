@@ -27,7 +27,8 @@ export const mediaCarouselSectionStyles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.3,
   },
-  row: { gap: Spacing.three, paddingHorizontal: Spacing.four },
+  row: { paddingHorizontal: Spacing.four },
+  rowSeparator: { width: Spacing.three },
   overlayRow: {
     flexDirection: 'row',
     gap: Spacing.three,

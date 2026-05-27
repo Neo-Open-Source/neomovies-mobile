@@ -63,8 +63,10 @@ export function createSearchScreenStyles(theme: ThemePalette) {
     recentRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: Spacing.two,
       paddingRight: Spacing.one,
+    },
+    recentItemSeparator: {
+      width: Spacing.two,
     },
     recentChip: {
       borderWidth: 0,
@@ -115,7 +117,6 @@ export function createSearchScreenStyles(theme: ThemePalette) {
     },
     rowGap: {
       justifyContent: 'flex-start',
-      gap: Spacing.three,
     },
     gridItem: {
       flex: 1,
@@ -150,6 +151,54 @@ export function createSearchScreenStyles(theme: ThemePalette) {
       fontSize: 14,
       lineHeight: 20,
       color: theme.textSecondary,
+    },
+    offlineCard: {
+      marginTop: Spacing.four,
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: Radius.lg,
+      backgroundColor: theme.backgroundElement,
+      paddingHorizontal: Spacing.four,
+      paddingVertical: Spacing.four,
+      alignItems: 'center',
+      gap: Spacing.three,
+    },
+    offlineFlow: {
+      alignItems: 'center',
+      gap: Spacing.two,
+      marginBottom: Spacing.one,
+    },
+    offlineDivider: {
+      height: 24,
+      borderLeftWidth: 1,
+      borderLeftColor: theme.textMuted,
+      borderStyle: 'dotted',
+    },
+    offlineTitle: {
+      fontSize: 16,
+      lineHeight: 22,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
+    offlineSubtitle: {
+      fontSize: 14,
+      lineHeight: 20,
+      color: theme.textSecondary,
+      textAlign: 'center',
+    },
+    retryButton: {
+      marginTop: Spacing.one,
+      minHeight: 46,
+      borderRadius: Radius.md,
+      paddingHorizontal: Spacing.four,
+      alignItems: 'center',
+      justifyContent: 'center',
+      alignSelf: 'stretch',
+    },
+    retryButtonText: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+      fontSize: 15,
     },
   });
 }

@@ -1,6 +1,6 @@
-import { router } from 'expo-router';
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import { Server } from 'lucide-react-native';
+import { FlashList } from '@shopify/flash-list';
 
 import { SelectionItem } from '@/components/selection-item';
 import { ThemedView } from '@/components/themed-view';
@@ -33,12 +33,17 @@ export default function SourceSelectionScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {sources.map((source) => {
+      <FlashList
+        data={sources}
+        keyExtractor={(item) => item.id}
+        estimatedItemSize={88}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+        ItemSeparatorComponent={() => <View style={styles.itemSeparator} />}
+        renderItem={({ item: source }) => {
           const isSelected = selectedSource === source.id;
           return (
             <SelectionItem
-              key={source.id}
               title={source.name}
               subtitle={source.description}
               selected={isSelected}
@@ -50,8 +55,8 @@ export default function SourceSelectionScreen() {
               }
             />
           );
-        })}
-      </ScrollView>
+        }}
+      />
     </ThemedView>
   );
 }

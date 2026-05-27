@@ -1,5 +1,6 @@
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import { Code, Heart } from 'lucide-react-native';
+import { FlashList } from '@shopify/flash-list';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -21,7 +22,13 @@ export default function CreditsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <FlashList
+        data={[{ id: 'credits' }]}
+        keyExtractor={(item) => item.id}
+        estimatedItemSize={700}
+        showsVerticalScrollIndicator={false}
+        renderItem={() => (
+          <View style={styles.content}>
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Code size={20} color={theme.accent} />
@@ -51,7 +58,9 @@ export default function CreditsScreen() {
             </View>
           </View>
         </View>
-      </ScrollView>
+          </View>
+        )}
+      />
     </ThemedView>
   );
 }

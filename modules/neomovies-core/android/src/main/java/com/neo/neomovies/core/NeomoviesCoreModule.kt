@@ -127,6 +127,30 @@ class NeomoviesCoreModule : Module() {
       }
     }
 
+    View(EpisodesListView::class) {
+      Events("onEpisodePress")
+
+      Prop("episodes") { view: EpisodesListView, episodes: List<Map<String, Any?>> ->
+        view.setEpisodes(episodes)
+      }
+
+      Prop("textColor") { view: EpisodesListView, color: String? ->
+        view.setTextColor(color)
+      }
+
+      Prop("secondaryTextColor") { view: EpisodesListView, color: String? ->
+        view.setSecondaryTextColor(color)
+      }
+
+      Prop("borderColor") { view: EpisodesListView, color: String? ->
+        view.setBorderColor(color)
+      }
+
+      Prop("backgroundColor") { view: EpisodesListView, color: String? ->
+        view.setBackgroundColorHex(color)
+      }
+    }
+
     Function("parseCollapsCatalog") { embedHtml: String ->
       CollapsParser.parseCollapsCatalog(embedHtml)
     }

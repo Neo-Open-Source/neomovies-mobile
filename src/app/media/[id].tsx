@@ -2,8 +2,10 @@ import { Image } from 'expo-image';
 import { Download, Play } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 
+import { AppStatusEmptyState } from '@/components/app-status-empty-state';
 import { MediaImage } from '@/components/cards/media-image';
 import { RatingsRow } from '@/components/media/ratings-row';
 import { SeriesEpisodesSection } from '@/components/media/series-episodes-section';
@@ -17,6 +19,7 @@ import { useI18n } from '@/i18n';
 import { addFavorite, checkFavorite, removeFavorite, resolveEpisodeStillUrl, resolveBackdropUrl, resolveLogoUrl, resolvePosterUrl } from '@/lib/neomovies-api';
 import { getStoredTokens } from '@/lib/neoid-auth';
 import { resetMediaFavoriteHeader, setMediaFavoriteHeader } from '@/lib/media-favorite-header';
+import { setRouteHasCache } from '@/lib/screen-cache-state';
 import { createMediaDetailsStyles } from '@/styles/media-details.styles';
 
 export default function MediaDetailsScreen() {
@@ -54,6 +57,10 @@ export default function MediaDetailsScreen() {
 
   const movieKpId = details?.type === 'movie' && canReadProgress ? mediaIdNumber : null;
   const movieProgress = useWatchProgress(movieKpId);
+
+  useEffect(() => {
+    setRouteHasCache('media', Boolean(details));
+  }, [details]);
 
   useEffect(() => {
     let active = true;
@@ -127,6 +134,10 @@ export default function MediaDetailsScreen() {
     return copy.media.watch;
   }, [copy.media.watch, details, firstEpisode?.episode, firstEpisode?.season, seriesProgress, movieProgress]);
 
+  const handleLogoError = useCallback(() => {
+    setLogoFailed(true);
+  }, []);
+
   const onToggleFavorite = useCallback(async () => {
     if (!details || favoriteBusy) return;
     favoriteCheckVersionRef.current += 1;
@@ -147,6 +158,32 @@ export default function MediaDetailsScreen() {
     }
   }, [details, favoriteBusy, isFavorite]);
 
+  const handleWatchPress = useCallback(() => {
+    if (!details) return;
+    router.push({
+      pathname: '/watch/[id]',
+      params: {
+        id: details.id,
+        title: details.title,
+        season: details.type === 'tv' ? String(seriesProgress?.lastSeason ?? firstEpisode?.season ?? 1) : undefined,
+        episode: details.type === 'tv' ? String(seriesProgress?.lastEpisode ?? firstEpisode?.episode ?? 1) : undefined,
+      },
+    });
+  }, [details, seriesProgress?.lastSeason, seriesProgress?.lastEpisode, firstEpisode?.season, firstEpisode?.episode]);
+
+  const handleOpenEpisode = useCallback((season: number, episode: number) => {
+    if (!details) return;
+    router.push({
+      pathname: '/watch/[id]',
+      params: {
+        id: details.id,
+        title: details.title,
+        season: String(season),
+        episode: String(episode),
+      },
+    });
+  }, [details]);
+
   useEffect(() => {
     setMediaFavoriteHeader({
       visible: Boolean(details) && favoriteStatusReady,
@@ -161,9 +198,126 @@ export default function MediaDetailsScreen() {
     };
   }, [details, favoriteBusy, favoriteStatusReady, isFavorite, onToggleFavorite]);
 
+  const detailsHeaderContent = useMemo(() => {
+    if (loading || !details) return null;
+    return (
+      <>
+        <View style={styles.heroCard}>
+          <MediaImage primaryUri={backdropUri} fallbackUris={[posterUri]} style={styles.heroImage} imageKey={details.id} priority="high" />
+          {!logoFailed && logoUri && readyLogoUri === logoUri ? (
+            <View style={styles.logoWrap}>
+              <Image
+                source={{ uri: logoUri }}
+                style={styles.logo}
+                contentFit="contain"
+                transition={0}
+                onError={handleLogoError}
+              />
+            </View>
+          ) : null}
+        </View>
+
+        <ThemedText style={styles.title}>{details.title}</ThemedText>
+        <View style={styles.metaRow}>
+          <ThemedText style={styles.metaItem}>{details.type === 'tv' ? copy.media.tv : copy.media.movie}</ThemedText>
+          {!!details.releaseDate ? <ThemedText style={styles.metaItem}>{details.releaseDate.slice(0, 4)}</ThemedText> : null}
+        </View>
+
+        <RatingsRow
+          theme={theme}
+          kp={details.ratings?.kp ?? details.rating}
+          tmdb={details.ratings?.tmdb}
+          imdb={details.ratings?.imdb}
+        />
+
+        {details.genres && details.genres.length > 0 ? (
+          <View style={styles.genresRow}>
+            {details.genres.map((genre) => (
+              <View key={genre.id} style={styles.genreChip}>
+                <ThemedText style={styles.genreText}>{genre.name}</ThemedText>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        <View style={styles.actionsRow}>
+          <Pressable style={styles.watchButton} onPress={handleWatchPress}>
+            <View style={styles.watchButtonContent}>
+              <Play size={18} strokeWidth={2.4} color="#FFFFFF" />
+              <ThemedText style={styles.watchButtonText}>{watchLabel}</ThemedText>
+            </View>
+          </Pressable>
+          <Pressable style={styles.iconButton} accessibilityLabel={copy.media.download}>
+            <Download size={20} strokeWidth={2.3} color={theme.text} />
+          </Pressable>
+        </View>
+
+        {!!details.description ? <ThemedText style={styles.description}>{details.description}</ThemedText> : null}
+      </>
+    );
+  }, [
+    backdropUri,
+    copy.media.download,
+    copy.media.movie,
+    copy.media.tv,
+    details,
+    loading,
+    logoFailed,
+    logoUri,
+    posterUri,
+    readyLogoUri,
+    styles,
+    theme,
+    watchLabel,
+    handleLogoError,
+    handleWatchPress,
+  ]);
+
+  if (!loading && details?.type === 'tv' && seriesCatalog && selectedSeasonData) {
+    return (
+      <ThemedView style={styles.container}>
+        <SeriesEpisodesSection
+          copy={copy}
+          theme={theme}
+          styles={styles}
+          detailsId={details.id}
+          detailsDescription={details.description}
+          canReadProgress={canReadProgress}
+          selectedSeasonData={selectedSeasonData}
+          seriesCatalog={seriesCatalog}
+          isSeasonPickerExpanded={isSeasonPickerExpanded}
+          setSeasonPickerExpanded={setSeasonPickerExpanded}
+          setSelectedSeason={setSelectedSeason}
+          sortedEpisodes={sortedEpisodes}
+          episodeMetaMap={episodeMetaMap}
+          seasonProgressMap={seasonProgressMap}
+          posterUri={posterUri}
+          resolveEpisodeStillUrl={resolveEpisodeStillUrl}
+          headerContent={detailsHeaderContent}
+          onOpenEpisode={handleOpenEpisode}
+        />
+      </ThemedView>
+    );
+  }
+
+  if (!loading && !details && error) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={[styles.content, { justifyContent: 'center', flex: 1 }]}>
+          <AppStatusEmptyState />
+        </View>
+      </ThemedView>
+    );
+  }
+
   return (
     <ThemedView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <FlashList
+        data={[{ id: 'media-static' }]}
+        keyExtractor={(item) => item.id}
+        showsVerticalScrollIndicator={false}
+        renderItem={() => (
+          <View style={styles.content}>
         {loading ? (
           <>
             <ThemedView type="backgroundSelected" style={styles.skeletonHero} />
@@ -175,7 +329,7 @@ export default function MediaDetailsScreen() {
         {!loading && details ? (
           <>
             <View style={styles.heroCard}>
-              <MediaImage primaryUri={backdropUri} fallbackUris={[posterUri]} style={styles.heroImage} />
+              <MediaImage primaryUri={backdropUri} fallbackUris={[posterUri]} style={styles.heroImage} priority="high" />
               {!logoFailed && logoUri && readyLogoUri === logoUri ? (
                 <View style={styles.logoWrap}>
                   <Image
@@ -238,47 +392,17 @@ onPress={() =>
 
             {!!details.description ? <ThemedText style={styles.description}>{details.description}</ThemedText> : null}
 
-            {details.type === 'tv' && seriesCatalog && selectedSeasonData ? (
-              <SeriesEpisodesSection
-                copy={copy}
-                theme={theme}
-                styles={styles}
-                detailsId={details.id}
-                detailsDescription={details.description}
-                mediaIdNumber={mediaIdNumber}
-                canReadProgress={canReadProgress}
-                posterUri={posterUri}
-                selectedSeasonData={selectedSeasonData}
-                seriesCatalog={seriesCatalog}
-                isSeasonPickerExpanded={isSeasonPickerExpanded}
-                setSeasonPickerExpanded={setSeasonPickerExpanded}
-                setSelectedSeason={setSelectedSeason}
-                sortedEpisodes={sortedEpisodes}
-                episodeMetaMap={episodeMetaMap}
-                seasonProgressMap={seasonProgressMap}
-                resolveEpisodeStillUrl={resolveEpisodeStillUrl}
-                onOpenEpisode={(season, episode) =>
-                  router.push({
-                    pathname: '/watch/[id]',
-                    params: {
-                      id: details.id,
-                      title: details.title,
-                      season: String(season),
-                      episode: String(episode),
-                    },
-                  })
-                }
-              />
-            ) : null}
           </>
         ) : null}
 
-        {!loading && error ? (
+        {!loading && error && details ? (
           <ThemedText type="small" themeColor="danger">
             {copy.home.loadError}: {error}
           </ThemedText>
         ) : null}
-      </ScrollView>
+          </View>
+        )}
+      />
     </ThemedView>
   );
 }

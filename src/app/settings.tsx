@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { Database, Globe, Palette, Server } from 'lucide-react-native';
+import { FlashList } from '@shopify/flash-list';
 
 import { ListRowItem } from '@/components/list-row-item';
 import { ThemedText } from '@/components/themed-text';
@@ -31,7 +32,13 @@ export default function SettingsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <FlashList
+        data={[{ id: 'settings' }]}
+        keyExtractor={(item) => item.id}
+        estimatedItemSize={760}
+        showsVerticalScrollIndicator={false}
+        renderItem={() => (
+          <View style={styles.content}>
         <View style={styles.section}>
           <ThemedText style={styles.sectionTitle}>{copy.settings.common}</ThemedText>
 
@@ -93,7 +100,9 @@ export default function SettingsScreen() {
             }
           />
         </View>
-      </ScrollView>
+          </View>
+        )}
+      />
     </ThemedView>
   );
 }

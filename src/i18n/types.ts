@@ -80,6 +80,15 @@ export type Dictionary = {
     sourceAlternativeTitle: string;
     sourceAlternativeDesc: string;
   };
+  appStatus: {
+    offlineBanner: string;
+    offlineNoCache: string;
+    offlineSearchUnavailable: string;
+    noInternetTitle: string;
+    noInternetDescription: string;
+    maintenanceTitle: string;
+    maintenanceDescription: string;
+  };
 };
 
 export type Locale = 'en' | 'ru' | 'uk' | 'be' | 'ro';

@@ -1,12 +1,20 @@
-import { ChevronDown, Download, Menu, Play } from 'lucide-react-native';
-import { Dispatch, SetStateAction } from 'react';
-import { Pressable, View } from 'react-native';
+import { ChevronDown, Menu } from "lucide-react-native";
+import {
+  Dispatch,
+  ReactElement,
+  SetStateAction,
+  useMemo,
+} from "react";
+import { Pressable, View } from "react-native";
 
-import { MediaImage } from '@/components/cards/media-image';
-import { RatingsRow } from '@/components/media/ratings-row';
-import { ThemedText } from '@/components/themed-text';
-import { CollapsEpisode, CollapsCatalogSeries, CollapsSeason } from '@/native/collaps-parser';
-import { createMediaDetailsStyles } from '@/styles/media-details.styles';
+import { ThemedText } from "@/components/themed-text";
+import {
+  CollapsCatalogSeries,
+  CollapsEpisode,
+  CollapsSeason,
+} from "@/native/collaps-parser";
+import { createMediaDetailsStyles } from "@/styles/media-details.styles";
+import { EpisodesListView, NativeEpisodeItem } from "neomovies-core";
 
 type ThemePalette = {
   text: string;
@@ -23,19 +31,12 @@ type EpisodeMeta = {
 };
 
 type SeriesEpisodesSectionProps = {
-  copy: {
-    watchSelector: {
-      episodes: string;
-      seasons: string;
-    };
-  };
+  copy: { watchSelector: { episodes: string; seasons: string } };
   theme: ThemePalette;
   styles: ReturnType<typeof createMediaDetailsStyles>;
   detailsId: string;
   detailsDescription: string;
-  mediaIdNumber: number;
   canReadProgress: boolean;
-  posterUri: string | null;
   selectedSeasonData: CollapsSeason;
   seriesCatalog: CollapsCatalogSeries;
   isSeasonPickerExpanded: boolean;
@@ -44,8 +45,15 @@ type SeriesEpisodesSectionProps = {
   sortedEpisodes: CollapsEpisode[];
   episodeMetaMap: Record<string, EpisodeMeta>;
   seasonProgressMap: Record<string, number>;
-  resolveEpisodeStillUrl: (movieId?: string | null, season?: number, episode?: number, size?: 'small' | 'large') => string | null;
+  posterUri: string | null;
+  resolveEpisodeStillUrl: (
+    movieId?: string | null,
+    season?: number,
+    episode?: number,
+    size?: "small" | "large",
+  ) => string | null;
   onOpenEpisode: (season: number, episode: number) => void;
+  headerContent?: ReactElement | null;
 };
 
 export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
@@ -53,11 +61,8 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
     copy,
     theme,
     styles,
-    detailsId,
     detailsDescription,
-    mediaIdNumber,
     canReadProgress,
-    posterUri,
     selectedSeasonData,
     seriesCatalog,
     isSeasonPickerExpanded,
@@ -66,110 +71,108 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
     sortedEpisodes,
     episodeMetaMap,
     seasonProgressMap,
-    resolveEpisodeStillUrl,
     onOpenEpisode,
+    headerContent,
   } = props;
 
+  const sortedSeasons = useMemo(() => {
+    return seriesCatalog.seasons.slice().sort((a, b) => a.season - b.season);
+  }, [seriesCatalog.seasons]);
+
+  const nativeEpisodes = useMemo<NativeEpisodeItem[]>(() => {
+    return sortedEpisodes.map((item) => {
+      const key = `${item.season}-${item.episode}`;
+      const meta = episodeMetaMap[key];
+      const progress = canReadProgress
+        ? Math.max(0, Math.min(seasonProgressMap[key] ?? 0, 100))
+        : 0;
+
+      return {
+        season: item.season,
+        episode: item.episode,
+        title: meta?.name || item.title || `Episode ${item.episode}`,
+        description: meta?.overview || detailsDescription,
+        progress,
+        tmdbRating: meta?.tmdbRating,
+        imdbRating: meta?.imdbRating,
+      };
+    });
+  }, [
+    canReadProgress,
+    detailsDescription,
+    episodeMetaMap,
+    seasonProgressMap,
+    sortedEpisodes,
+  ]);
+
   return (
-    <>
-      <ThemedText style={styles.sectionTitle}>{copy.watchSelector.episodes}</ThemedText>
+    <View style={{ flex: 1, width: "100%" }}>
+      <View style={styles.flashListContent}>
+        {headerContent}
+        <ThemedText style={styles.sectionTitle}>
+          {copy.watchSelector.episodes}
+        </ThemedText>
 
-      <View style={styles.seasonSelectorWrapper}>
-        <Pressable
-          style={styles.seasonsHeader}
-          onPress={() => setSeasonPickerExpanded((prev: boolean) => !prev)}>
-          <View style={styles.seasonsHeaderLeft}>
-            <Menu size={18} color={theme.text} />
-            <ThemedText style={styles.seasonsHeaderLabel}>Season {selectedSeasonData.season}</ThemedText>
-          </View>
-          <View style={styles.seasonsHeaderLeft}>
-            <ThemedText style={styles.seasonMeta}>
-              {seriesCatalog.seasons.length} {copy.watchSelector.seasons}, {selectedSeasonData.episodes.length} {copy.watchSelector.episodes}
-            </ThemedText>
-            <ChevronDown size={16} color={theme.textSecondary} />
-          </View>
-        </Pressable>
+        <View style={styles.seasonSelectorWrapper}>
+          <Pressable
+            style={styles.seasonsHeader}
+            onPress={() => setSeasonPickerExpanded((prev) => !prev)}
+          >
+            <View style={styles.seasonsHeaderLeft}>
+              <Menu size={18} color={theme.text} />
+              <ThemedText style={styles.seasonsHeaderLabel}>
+                Season {selectedSeasonData.season}
+              </ThemedText>
+            </View>
+            <View style={styles.seasonsHeaderLeft}>
+              <ThemedText style={styles.seasonMeta}>
+                {seriesCatalog.seasons.length} {copy.watchSelector.seasons},{" "}
+                {selectedSeasonData.episodes.length} {copy.watchSelector.episodes}
+              </ThemedText>
+              <ChevronDown size={16} color={theme.textSecondary} />
+            </View>
+          </Pressable>
 
-        {isSeasonPickerExpanded ? (
-          <View style={styles.seasonDropdownList}>
-            {seriesCatalog.seasons
-              .slice()
-              .sort((a, b) => a.season - b.season)
-              .map((season) => (
+          {isSeasonPickerExpanded ? (
+            <View style={styles.seasonDropdownList}>
+              {sortedSeasons.map((season) => (
                 <Pressable
                   key={`season-${season.season}`}
-                  style={[styles.seasonOptionRow, season.season === selectedSeasonData.season ? styles.seasonOptionRowActive : null]}
+                  style={[
+                    styles.seasonOptionRow,
+                    season.season === selectedSeasonData.season
+                      ? styles.seasonOptionRowActive
+                      : null,
+                  ]}
                   onPress={() => {
                     setSelectedSeason(season.season);
                     setSeasonPickerExpanded(false);
-                  }}>
-                  <ThemedText style={styles.seasonOptionText}>Season {season.season}</ThemedText>
-                  {season.season === selectedSeasonData.season ? <ThemedText style={styles.seasonOptionCheck}>✓</ThemedText> : null}
+                  }}
+                >
+                  <ThemedText style={styles.seasonOptionText}>
+                    Season {season.season}
+                  </ThemedText>
+                  {season.season === selectedSeasonData.season ? (
+                    <ThemedText style={styles.seasonOptionCheck}>✓</ThemedText>
+                  ) : null}
                 </Pressable>
               ))}
-          </View>
-        ) : null}
+            </View>
+          ) : null}
+        </View>
       </View>
 
-      <View style={styles.episodesList}>
-        {sortedEpisodes.map((episode) => {
-          const key = `${episode.season}-${episode.episode}`;
-          const meta = episodeMetaMap[key];
-          const progress = canReadProgress ? Math.max(0, Math.min(seasonProgressMap[key] ?? 0, 100)) : 0;
-          const stillUri = resolveEpisodeStillUrl(detailsId, episode.season, episode.episode, 'small');
-
-          return (
-            <Pressable key={`episode-${key}`} style={styles.episodeCard} onPress={() => onOpenEpisode(episode.season, episode.episode)}>
-              <View style={styles.episodeContent}>
-                <View style={styles.episodeImageWrapper}>
-                  <MediaImage primaryUri={stillUri} fallbackUris={[posterUri]} style={styles.episodeImage} />
-                  <Pressable style={styles.episodePlayButton} onPress={() => onOpenEpisode(episode.season, episode.episode)}>
-                    <Play size={14} strokeWidth={2.5} color="#FFFFFF" fill="#FFFFFF" />
-                  </Pressable>
-                  {progress >= 95 ? (
-                    <View style={styles.episodeWatchedBadge}>
-                      <ThemedText style={styles.episodeWatchedText}>✓</ThemedText>
-                    </View>
-                  ) : progress > 5 ? (
-                    <View style={styles.episodeProgressBadge}>
-                      <ThemedText style={styles.episodeProgressText}>{Math.round(progress)}%</ThemedText>
-                    </View>
-                  ) : null}
-                  <View style={styles.episodeProgressTrack}>
-                    <View
-                      style={[
-                        styles.episodeProgressFill,
-                        {
-                          width: progress > 0 ? `${progress}%` : 0,
-                        },
-                      ]}
-                    />
-                  </View>
-                </View>
-                <View style={styles.episodeInfo}>
-                  <ThemedText style={styles.episodeTitle} numberOfLines={1}>
-                    {episode.episode}. {meta?.name || episode.title || `Episode ${episode.episode}`}
-                  </ThemedText>
-                  <View style={styles.episodeMetaRow}>
-                    <ThemedText style={styles.episodeMeta}>{`S${episode.season} · E${episode.episode}`}</ThemedText>
-                    {(meta?.tmdbRating || meta?.imdbRating) ? (
-                      <RatingsRow theme={theme} tmdb={meta?.tmdbRating} imdb={meta?.imdbRating} compact />
-                    ) : null}
-                  </View>
-                  <ThemedText style={styles.episodeDescription} numberOfLines={2}>
-                    {meta?.overview || detailsDescription}
-                  </ThemedText>
-                </View>
-                <View style={styles.episodeActionsRail}>
-                  <Pressable style={styles.episodeActionButton}>
-                    <Download size={13} strokeWidth={2.2} color={theme.text} />
-                  </Pressable>
-                </View>
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
-    </>
+      <EpisodesListView
+        style={{ flex: 1, width: "100%" }}
+        episodes={nativeEpisodes}
+        textColor={theme.text}
+        secondaryTextColor={theme.textSecondary}
+        borderColor={theme.border}
+        backgroundColor={theme.backgroundElement}
+        onEpisodePress={(event) => {
+          onOpenEpisode(event.nativeEvent.season, event.nativeEvent.episode);
+        }}
+      />
+    </View>
   );
 }

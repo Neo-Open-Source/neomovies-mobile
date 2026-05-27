@@ -82,4 +82,13 @@ export const en: Dictionary = {
     sourceAlternativeTitle: 'Alloha',
     sourceAlternativeDesc: 'Alloha provider',
   },
+  appStatus: {
+    offlineBanner: 'Offline mode is active.',
+    offlineNoCache: 'No cached data available yet.',
+    offlineSearchUnavailable: 'Search is temporarily unavailable in offline mode.',
+    noInternetTitle: 'No Internet',
+    noInternetDescription: 'Your network is unavailable. Check mobile data or Wi-Fi connection.',
+    maintenanceTitle: 'Maintenance',
+    maintenanceDescription: 'Service is temporarily unavailable. Please try again later.',
+  },
 };

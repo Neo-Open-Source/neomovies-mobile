@@ -19,6 +19,15 @@ export function createMediaDetailsStyles(theme: ThemePalette) {
       paddingBottom: 110,
       gap: Spacing.three,
     },
+    flashListContent: {
+      paddingHorizontal: Spacing.three,
+      paddingBottom: 110,
+    },
+    flashListHeader: {
+      gap: Spacing.three,
+      paddingTop: Spacing.three,
+      paddingBottom: Spacing.three,
+    },
     heroCard: {
       borderRadius: Radius.lg,
       overflow: 'hidden',
@@ -128,7 +137,7 @@ export function createMediaDetailsStyles(theme: ThemePalette) {
     },
     seasonSelectorWrapper: {
       position: 'relative',
-      marginTop: Spacing.one,
+      marginTop: Spacing.two,
     },
     seasonsHeader: {
       flexDirection: 'row',
@@ -225,7 +234,10 @@ export function createMediaDetailsStyles(theme: ThemePalette) {
       gap: Spacing.three,
     },
     episodeCard: {
-      marginBottom: Spacing.one,
+      marginBottom: 0,
+    },
+    episodeSeparator: {
+      height: Spacing.two,
     },
     episodeContent: {
       flexDirection: 'row',
@@ -292,6 +304,24 @@ export function createMediaDetailsStyles(theme: ThemePalette) {
       flex: 1,
       gap: 4,
       paddingTop: 0,
+      justifyContent: 'center',
+    },
+    episodeTitleSkeleton: {
+      width: '78%',
+      height: 14,
+      borderRadius: 6,
+      marginBottom: 6,
+    },
+    episodeMetaSkeleton: {
+      width: '48%',
+      height: 12,
+      borderRadius: 6,
+      marginBottom: 8,
+    },
+    episodeDescriptionSkeleton: {
+      width: '92%',
+      height: 28,
+      borderRadius: 6,
     },
     episodeTitle: {
       fontSize: 15,

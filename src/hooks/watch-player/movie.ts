@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 import { avPlayerConfigurePlaylist, avPlayerPresentNativeUI } from '@/native/collaps-parser';
-import CollapsParser from 'neomovies-core';
+import NeomoviesCore from 'neomovies-core';
 
 import { normalizeMediaFileId, shouldPreferHlsForAndroidExo } from './helpers';
 import { rewriteDashToLocalOrFallback, rewriteHlsToLocalOrFallback } from './manifest';
@@ -65,8 +65,8 @@ async function launchAndroidMoviePlayer(
   const kpId = Number(mediaId.replace(/^kp_/, ''));
   const allohaVariants = catalog.allohaVariants;
 
-  if (allohaVariants && allohaVariants.length > 1 && CollapsParser.exoPlayerLaunchPlaylist) {
-    await CollapsParser.exoPlayerLaunchPlaylist(
+  if (allohaVariants && allohaVariants.length > 1 && NeomoviesCore.exoPlayerLaunchPlaylist) {
+    await NeomoviesCore.exoPlayerLaunchPlaylist(
       allohaVariants.map((variant) => variant.url),
       0,
       playbackHeaders,
@@ -119,5 +119,5 @@ async function launchAndroidMoviePlayer(
   }
 
   if (!finalUrl) return;
-  await CollapsParser.exoPlayerLaunch?.(finalUrl, playbackHeaders, title, Number.isFinite(kpId) ? kpId : null);
+  await NeomoviesCore.exoPlayerLaunch?.(finalUrl, playbackHeaders, title, Number.isFinite(kpId) ? kpId : null);
 }

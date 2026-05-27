@@ -1,8 +1,9 @@
 import { router } from 'expo-router';
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import Constants from 'expo-constants';
 import { Image } from 'expo-image';
 import { FileText, RefreshCw, Sparkles } from 'lucide-react-native';
+import { FlashList } from '@shopify/flash-list';
 
 import { ListRowItem } from '@/components/list-row-item';
 import { ThemedText } from '@/components/themed-text';
@@ -27,7 +28,13 @@ export default function AboutScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <FlashList
+        data={[{ id: 'about' }]}
+        keyExtractor={(item) => item.id}
+        estimatedItemSize={900}
+        showsVerticalScrollIndicator={false}
+        renderItem={() => (
+          <View style={styles.content}>
         <View style={styles.centeredIconWrap}>
           <Image source={appIconSource} style={styles.centeredAppIcon} contentFit="cover" />
         </View>
@@ -88,7 +95,9 @@ export default function AboutScreen() {
             <ThemedText style={styles.metaValue}>{build}</ThemedText>
           </View>
         </View>
-      </ScrollView>
+          </View>
+        )}
+      />
     </ThemedView>
   );
 }

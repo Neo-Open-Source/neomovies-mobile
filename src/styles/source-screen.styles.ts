@@ -15,7 +15,9 @@ export function createSourceScreenStyles(theme: ThemePalette) {
       paddingHorizontal: Spacing.four,
       paddingTop: Spacing.two,
       paddingBottom: Spacing.six,
-      gap: Spacing.two,
+    },
+    itemSeparator: {
+      height: Spacing.two,
     },
     iconWrapper: {
       width: 32,

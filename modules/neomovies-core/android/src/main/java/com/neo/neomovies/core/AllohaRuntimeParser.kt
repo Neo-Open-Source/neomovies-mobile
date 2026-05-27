@@ -346,7 +346,7 @@ object AllohaRuntimeParser {
         val candidates = mutableListOf<String>()
         candidates.addAll(balancedJSONObjectCandidates("\"hlsSource\"", payload))
         candidates.addAll(balancedJSONObjectCandidates("hlsSource", payload))
-        val pattern = Regex("""\{[^{}]*"hlsSource"\s*:\s*\[[\s\S]*?]\s*(?:,[\s\S]*?)?}""", RegexOption.IGNORE_CASE)
+        val pattern = Regex("""\{[^{}]*"hlsSource"\s*:\s*\[[\s\S]*?]\s*(?:,[\s\S]*?)?\}""", RegexOption.IGNORE_CASE)
         candidates.addAll(pattern.findAll(payload).map { it.value })
         return candidates.distinct()
     }

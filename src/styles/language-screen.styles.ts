@@ -11,7 +11,9 @@ export function createLanguageScreenStyles() {
       paddingHorizontal: Spacing.four,
       paddingTop: Spacing.two,
       paddingBottom: Spacing.six,
-      gap: Spacing.two,
+    },
+    itemSeparator: {
+      height: Spacing.two,
     },
     flagBadge: {
       width: 32,

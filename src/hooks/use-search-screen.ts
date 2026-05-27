@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 
+import { MAINTENANCE_ERROR_CODE, getOfflineModeSnapshot, subscribeOfflineMode } from '@/lib/offline-mode';
 import { searchMovies } from '@/lib/neomovies-api';
 import { SearchResultItem } from '@/types/api';
 
@@ -40,6 +41,7 @@ function shouldTrackHistoryQuery(value: string) {
 }
 
 export function useSearchScreen() {
+  const [offlineState, setOfflineState] = useState(getOfflineModeSnapshot());
   const [query, setQuery] = useState(searchScreenSessionCache.query);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -54,6 +56,10 @@ export function useSearchScreen() {
     searchScreenSessionCache.query.length >= AUTO_SEARCH_MIN_CHARS &&
       searchScreenSessionCache.results.length > 0
   );
+
+  useEffect(() => {
+    return subscribeOfflineMode(setOfflineState);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -100,6 +106,13 @@ export function useSearchScreen() {
     sourceQuery: string,
     options?: { trackHistory?: boolean; nextPage?: number; append?: boolean }
   ) => {
+    if (offlineState.enabled) {
+      setLoading(false);
+      setLoadingMore(false);
+      setError('Offline mode is enabled. Search is temporarily unavailable.');
+      return;
+    }
+
     const normalized = normalizeQuery(sourceQuery);
     if (normalized.length < AUTO_SEARCH_MIN_CHARS) {
       setError(null);
@@ -153,7 +166,12 @@ export function useSearchScreen() {
       }
     } catch (e) {
       if (requestId !== requestIdRef.current) return;
-      setError(e instanceof Error ? e.message : 'Request failed');
+      const message = e instanceof Error ? e.message : 'Request failed';
+      if (message === MAINTENANCE_ERROR_CODE) {
+        setError('Offline mode is enabled. Search is temporarily unavailable.');
+      } else {
+        setError(message);
+      }
     } finally {
       if (requestId === requestIdRef.current) {
         if (shouldAppend) {
@@ -210,7 +228,9 @@ export function useSearchScreen() {
       void executeSearch(normalized, { trackHistory: false });
     }, AUTO_SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [query]);
+    // executeSearch intentionally excluded: recreating it each render would retrigger debounce loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, offlineState.enabled]);
 
   const hasNextPage = page > 0 && page < totalPages;
 

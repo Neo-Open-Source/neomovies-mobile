@@ -5,7 +5,7 @@ import {
   avPlayerPresentNativeUI,
   CollapsSubtitle,
 } from '@/native/collaps-parser';
-import CollapsParser from 'neomovies-core';
+import NeomoviesCore from 'neomovies-core';
 
 import { mergeResolvedSubtitles, resolveAllohaIframeToPlayable } from './alloha';
 import { findEpisodeByNumber, findSeasonByNumber, shouldPreferHlsForAndroidExo } from './helpers';
@@ -45,7 +45,7 @@ async function launchAllohaSeriesPlayer(
       Origin: playbackHeaders.Origin,
     };
     const sortedEpisodes = [...activeSeason.episodes].sort((a, b) => a.episode - b.episode);
-    const playlistItems: Array<{
+    const playlistItems: {
       mediaId: string;
       title: string;
       url: string;
@@ -54,13 +54,13 @@ async function launchAllohaSeriesPlayer(
       episode: number;
       voiceovers: string[];
       subtitles: CollapsSubtitle[];
-      audioVariants: Array<{
+      audioVariants: {
         title: string;
         url: string;
-        qualityVariants?: Array<{ label: string; url: string; bitrate?: number | null; height?: number | null }>;
-      }>;
-      qualityVariants?: Array<{ label: string; url: string; bitrate?: number | null; height?: number | null }>;
-    }> = [];
+        qualityVariants?: { label: string; url: string; bitrate?: number | null; height?: number | null }[];
+      }[];
+      qualityVariants?: { label: string; url: string; bitrate?: number | null; height?: number | null }[];
+    }[] = [];
 
     const resolved = await resolveAllohaIframeToPlayable(activeEpisode.playlist.primaryUrl, playbackHeaders);
     const activeEpisodeId = `${mediaId}_s${activeEpisode.season}_e${activeEpisode.episode}`;
@@ -115,7 +115,7 @@ async function launchAllohaSeriesPlayer(
   }
 
   const resolved = await resolveAllohaIframeToPlayable(activeEpisode.playlist.primaryUrl, playbackHeaders);
-  await CollapsParser.exoPlayerLaunch?.(
+  await NeomoviesCore.exoPlayerLaunch?.(
     resolved.url,
     playbackHeaders,
     `${title ?? 'Series'} S${activeEpisode.season}E${activeEpisode.episode}`,
@@ -181,8 +181,8 @@ async function launchCollapsSeriesPlayer(
 
   const kpId = Number(mediaId.replace(/^kp_/, ''));
   const allohaVariantsAndroid = catalog.allohaVariants;
-  if (allohaVariantsAndroid && allohaVariantsAndroid.length > 1 && CollapsParser.exoPlayerLaunchPlaylist) {
-    await CollapsParser.exoPlayerLaunchPlaylist(
+  if (allohaVariantsAndroid && allohaVariantsAndroid.length > 1 && NeomoviesCore.exoPlayerLaunchPlaylist) {
+    await NeomoviesCore.exoPlayerLaunchPlaylist(
       allohaVariantsAndroid.map((variant) => variant.url),
       0,
       playbackHeaders,
@@ -219,8 +219,8 @@ async function launchCollapsSeriesPlayer(
     seasonPlaylist.findIndex((item) => item.season === activeEpisode.season && item.episode === activeEpisode.episode)
   );
 
-  if (CollapsParser.exoPlayerLaunchPlaylist && seasonPlaylist.length > 0) {
-    await CollapsParser.exoPlayerLaunchPlaylist(
+  if (NeomoviesCore.exoPlayerLaunchPlaylist && seasonPlaylist.length > 0) {
+    await NeomoviesCore.exoPlayerLaunchPlaylist(
       seasonPlaylist.map((item) => item.url),
       startIndex,
       playbackHeaders,
@@ -234,7 +234,7 @@ async function launchCollapsSeriesPlayer(
 
   const singleUrl = seasonPlaylist[startIndex]?.url;
   if (singleUrl) {
-    await CollapsParser.exoPlayerLaunch?.(
+    await NeomoviesCore.exoPlayerLaunch?.(
       singleUrl,
       playbackHeaders,
       `${title ?? 'Series'} S${activeEpisode.season}E${activeEpisode.episode}`,

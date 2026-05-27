@@ -1,6 +1,7 @@
 import { API_BASE_URL, API_ORIGIN } from '@/lib/config';
 import { httpGet, httpGetText } from '@/lib/http';
 import { getStoredTokens, refreshAccessToken } from '@/lib/neoid-auth';
+import { MAINTENANCE_ERROR_CODE, NETWORK_ERROR_CODE, enableMaintenanceOfflineMode, enableNetworkOfflineMode, isMaintenancePayload } from '@/lib/offline-mode';
 import {
   ApiEnvelope,
   FavoriteItem,
@@ -39,12 +40,23 @@ async function authFetch(input: string, init?: RequestInit) {
       },
     });
 
-  let response = await run(tokens.accessToken);
+  let response: Response;
+  try {
+    response = await run(tokens.accessToken);
+  } catch {
+    enableNetworkOfflineMode();
+    throw new Error(NETWORK_ERROR_CODE);
+  }
   if (response.status !== 401) return response;
 
   const nextToken = await refreshAccessToken();
   if (!nextToken) return response;
-  response = await run(nextToken);
+  try {
+    response = await run(nextToken);
+  } catch {
+    enableNetworkOfflineMode();
+    throw new Error(NETWORK_ERROR_CODE);
+  }
   return response;
 }
 
@@ -52,6 +64,10 @@ async function authGet<T>(url: string): Promise<T> {
   const response = await authFetch(url, { method: 'GET' });
   const text = await response.text();
   if (!response.ok) {
+    if (isMaintenancePayload(response.status, text)) {
+      enableMaintenanceOfflineMode();
+      throw new Error(MAINTENANCE_ERROR_CODE);
+    }
     throw new Error(`HTTP ${response.status}: ${text || 'Request failed'}`);
   }
   const payload = (text ? JSON.parse(text) : {}) as ApiEnvelope<T> | T;
@@ -62,6 +78,10 @@ async function authMutate<T>(url: string, method: 'POST' | 'DELETE'): Promise<T>
   const response = await authFetch(url, { method });
   const text = await response.text();
   if (!response.ok) {
+    if (isMaintenancePayload(response.status, text)) {
+      enableMaintenanceOfflineMode();
+      throw new Error(MAINTENANCE_ERROR_CODE);
+    }
     throw new Error(`HTTP ${response.status}: ${text || 'Request failed'}`);
   }
   const payload = (text ? JSON.parse(text) : {}) as ApiEnvelope<T> | T;
@@ -181,17 +201,27 @@ async function loadProviderEmbedHtml(
     };
   }
 
-  const iframeResponse = await fetch(iframeSource, {
-    method: 'GET',
-    headers: {
-      Accept: 'text/html,application/xhtml+xml',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      Referer: API_ORIGIN.endsWith('/') ? API_ORIGIN : `${API_ORIGIN}/`,
-      Origin: API_ORIGIN,
-    },
-  });
+  let iframeResponse: Response;
+  try {
+    iframeResponse = await fetch(iframeSource, {
+      method: 'GET',
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        Referer: API_ORIGIN.endsWith('/') ? API_ORIGIN : `${API_ORIGIN}/`,
+        Origin: API_ORIGIN,
+      },
+    });
+  } catch {
+    enableNetworkOfflineMode();
+    throw new Error(NETWORK_ERROR_CODE);
+  }
   const embedHtml = await iframeResponse.text();
   if (!iframeResponse.ok) {
+    if (isMaintenancePayload(iframeResponse.status, embedHtml)) {
+      enableMaintenanceOfflineMode();
+      throw new Error(MAINTENANCE_ERROR_CODE);
+    }
     throw new Error(`HTTP ${iframeResponse.status}: ${embedHtml || 'Failed to load provider embed HTML'}`);
   }
 
@@ -220,17 +250,27 @@ export async function getCollapsEmbedHtml(mediaId: string, season?: number, epis
   const rawId = mediaId.replace(/^kp_/, '');
   const iframeSource = `https://api.luxembd.ws/embed/kp/${rawId}`;
 
-  const embedResponse = await fetch(iframeSource, {
-    method: 'GET',
-    headers: {
-      Accept: 'text/html,application/xhtml+xml',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      Referer: 'https://kinokrad.my/',
-      Origin: 'https://kinokrad.my',
-    },
-  });
+  let embedResponse: Response;
+  try {
+    embedResponse = await fetch(iframeSource, {
+      method: 'GET',
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        Referer: 'https://kinokrad.my/',
+        Origin: 'https://kinokrad.my',
+      },
+    });
+  } catch {
+    enableNetworkOfflineMode();
+    throw new Error(NETWORK_ERROR_CODE);
+  }
   const embedHtml = await embedResponse.text();
   if (!embedResponse.ok) {
+    if (isMaintenancePayload(embedResponse.status, embedHtml)) {
+      enableMaintenanceOfflineMode();
+      throw new Error(MAINTENANCE_ERROR_CODE);
+    }
     throw new Error(`HTTP ${embedResponse.status}: ${embedHtml || 'Failed to load Collaps embed HTML'}`);
   }
 

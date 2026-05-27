@@ -6,11 +6,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { NavBar } from '@/components/nav-bar';
+import { OfflineBanner } from '@/components/offline-banner';
 import { ScreenTitle } from '@/components/screen-title';
 import { AppTamaguiProvider } from '@/components/tamagui-provider';
 import { Colors } from '@/constants/theme';
 import { AppThemeProvider, useAppTheme } from '@/hooks/use-app-theme';
 import { I18nProvider } from '@/i18n';
+import { hydrateOfflineMode } from '@/lib/offline-mode';
 import { createRootLayoutStyles } from '@/styles/root-layout.styles';
 
 export default function TabLayout() {
@@ -59,12 +61,17 @@ function TabLayoutContent() {
     },
   };
 
+  React.useEffect(() => {
+    void hydrateOfflineMode();
+  }, []);
+
   return (
     <AppTamaguiProvider>
       <ThemeProvider value={navigationTheme}>
         <AnimatedSplashOverlay />
         <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
           <ScreenTitle />
+          <OfflineBanner />
           <View style={styles.content}>
             <Slot />
           </View>

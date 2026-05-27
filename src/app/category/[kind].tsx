@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -10,9 +10,12 @@ import {
 } from 'react-native';
 
 import { PosterCard } from '@/components/cards/poster-card';
+import { AppStatusEmptyState } from '@/components/app-status-empty-state';
 import { ThemedView } from '@/components/themed-view';
 import { useCategoryScreenData } from '@/hooks/use-category-screen-data';
 import { useTheme } from '@/hooks/use-theme';
+import { getOfflineModeSnapshot, subscribeOfflineMode } from '@/lib/offline-mode';
+import { setRouteHasCache } from '@/lib/screen-cache-state';
 import { categoryScreenStyles } from '@/styles/category-screen.styles';
 import { PopularMovie } from '@/types/api';
 
@@ -62,8 +65,14 @@ export default function CategoryScreen() {
 
   const { loading, items, hasNextPage, loadNextPage, refresh } =
     useCategoryScreenData(kind);
+  const [offlineEnabled, setOfflineEnabled] = useState(getOfflineModeSnapshot().enabled);
 
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => subscribeOfflineMode((next) => setOfflineEnabled(next.enabled)), []);
+  useEffect(() => {
+    setRouteHasCache('category', items.length > 0);
+  }, [items.length]);
 
   // Скелетоны только при первом пустом экране
   const gridData = useMemo<GridItem[]>(() => {
@@ -85,6 +94,16 @@ export default function CategoryScreen() {
     }
   };
 
+  if (!loading && offlineEnabled && items.length === 0) {
+    return (
+      <ThemedView style={categoryScreenStyles.container}>
+        <View style={[categoryScreenStyles.listContent, { justifyContent: 'center', flex: 1 }]}>
+          <AppStatusEmptyState />
+        </View>
+      </ThemedView>
+    );
+  }
+
   return (
     <ThemedView style={categoryScreenStyles.container}>
       <FlatList
@@ -95,6 +114,7 @@ export default function CategoryScreen() {
         contentContainerStyle={categoryScreenStyles.listContent}
         columnWrapperStyle={columns > 1 ? categoryScreenStyles.row : undefined}
         showsVerticalScrollIndicator={false}
+        estimatedItemSize={260}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -108,10 +128,15 @@ export default function CategoryScreen() {
             void loadNextPage();
           }
         }}
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
+          const isLastColumn = columns > 1 && (index + 1) % columns === 0;
+          const spacingStyle = [
+            { marginBottom: CARD_GAP },
+            !isLastColumn ? { marginRight: CARD_GAP } : null,
+          ];
           if (item.kind === 'skeleton') {
             return (
-              <View style={[categoryScreenStyles.gridItem, dynamicStyles.gridItem]}>
+              <View style={[categoryScreenStyles.gridItem, dynamicStyles.gridItem, spacingStyle]}>
                 <ThemedView
                   type="backgroundSelected"
                   style={categoryScreenStyles.skeleton}
@@ -120,7 +145,7 @@ export default function CategoryScreen() {
             );
           }
           return (
-            <View style={[categoryScreenStyles.gridItem, dynamicStyles.gridItem]}>
+            <View style={[categoryScreenStyles.gridItem, dynamicStyles.gridItem, spacingStyle]}>
               <Pressable
                 onPress={() =>
                   router.push({

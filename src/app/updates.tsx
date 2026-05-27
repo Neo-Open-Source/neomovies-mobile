@@ -1,4 +1,5 @@
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -12,13 +13,20 @@ export default function UpdatesScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        <View style={styles.card}>
-          <ThemedText style={styles.text}>
-            {copy.profile.updates} (заглушка). История изменений и релиз-ноты.
-          </ThemedText>
-        </View>
-      </ScrollView>
+      <FlashList
+        data={[{ id: 'updates' }]}
+        keyExtractor={(item) => item.id}
+        estimatedItemSize={220}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+        renderItem={() => (
+          <View style={styles.card}>
+            <ThemedText style={styles.text}>
+              {copy.profile.updates} (заглушка). История изменений и релиз-ноты.
+            </ThemedText>
+          </View>
+        )}
+      />
     </ThemedView>
   );
 }

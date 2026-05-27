@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -22,8 +23,8 @@ function formatRating(value?: number | null) {
   return value.toFixed(1);
 }
 
-export function RatingsRow({ theme, kp, tmdb, imdb, compact = false }: RatingsRowProps) {
-  const styles = createStyles(theme, compact);
+export const RatingsRow = memo(function RatingsRow({ theme, kp, tmdb, imdb, compact = false }: RatingsRowProps) {
+  const styles = useMemo(() => createStyles(theme, compact), [theme, compact]);
   const hasKp = typeof kp === 'number' && !Number.isNaN(kp) && kp > 0;
   const hasTmdb = typeof tmdb === 'number' && !Number.isNaN(tmdb) && tmdb > 0;
   const hasImdb = typeof imdb === 'number' && !Number.isNaN(imdb) && imdb > 0;
@@ -58,7 +59,7 @@ export function RatingsRow({ theme, kp, tmdb, imdb, compact = false }: RatingsRo
       ) : null}
     </View>
   );
-}
+});
 
 function createStyles(theme: ThemePalette, compact: boolean) {
   return StyleSheet.create({

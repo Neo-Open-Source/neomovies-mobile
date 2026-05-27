@@ -1,15 +1,13 @@
 import { CollapsSubtitle } from '@/native/collaps-parser';
-import CollapsParser from 'neomovies-core';
+import NeomoviesCore from 'neomovies-core';
+import * as ExpoFileSystem from 'expo-file-system';
 
 import { PlayerHeaders } from './types';
 
-const ExpoFileSystem = require('expo-file-system') as {
-  File: new (...args: unknown[]) => {
-    uri: string;
-    create: (options?: { overwrite?: boolean; intermediates?: boolean }) => void;
-    write: (content: string) => void;
-  };
-  Paths: { cache: unknown };
+type ExpoFsFileCtor = new (...args: unknown[]) => {
+  uri: string;
+  create: (options?: { overwrite?: boolean; intermediates?: boolean }) => void;
+  write: (content: string) => void;
 };
 
 export function absolutizeHlsManifestUris(manifest: string, manifestUrl: string): string {
@@ -35,7 +33,7 @@ export async function rewriteHlsToLocalOrFallback(
   headers: PlayerHeaders
 ): Promise<string> {
   try {
-    const rewrittenHls = await CollapsParser.rewriteCollapsHlsFromUrl(
+    const rewrittenHls = await NeomoviesCore.rewriteCollapsHlsFromUrl(
       hlsUrl,
       voices,
       subtitles,
@@ -44,7 +42,9 @@ export async function rewriteHlsToLocalOrFallback(
       headers.Origin
     );
     const finalHls = absolutizeHlsManifestUris(rewrittenHls, hlsUrl);
-    const file = new ExpoFileSystem.File(ExpoFileSystem.Paths.cache, `${mediaFileId}.m3u8`);
+    const FileCtor = (ExpoFileSystem as unknown as { File: ExpoFsFileCtor }).File;
+    const Paths = (ExpoFileSystem as unknown as { Paths: { cache: unknown } }).Paths;
+    const file = new FileCtor(Paths.cache, `${mediaFileId}.m3u8`);
     file.create({ overwrite: true, intermediates: true });
     file.write(finalHls);
     return file.uri;
@@ -66,7 +66,7 @@ export async function rewriteDashToLocalOrFallback(
   headers: PlayerHeaders
 ): Promise<string | null> {
   try {
-    const rewrittenDash = await CollapsParser.rewriteCollapsDashFromUrl(
+    const rewrittenDash = await NeomoviesCore.rewriteCollapsDashFromUrl(
       dashUrl,
       voices,
       subtitles,
@@ -74,7 +74,9 @@ export async function rewriteDashToLocalOrFallback(
       headers.Referer,
       headers.Origin
     );
-    const file = new ExpoFileSystem.File(ExpoFileSystem.Paths.cache, `${mediaFileId}.mpd`);
+    const FileCtor = (ExpoFileSystem as unknown as { File: ExpoFsFileCtor }).File;
+    const Paths = (ExpoFileSystem as unknown as { Paths: { cache: unknown } }).Paths;
+    const file = new FileCtor(Paths.cache, `${mediaFileId}.mpd`);
     file.create({ overwrite: true, intermediates: true });
     file.write(rewrittenDash);
     return file.uri;

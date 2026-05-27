@@ -5,10 +5,12 @@ import { Platform } from 'react-native';
 export * from './NeomoviesCoreModule.types';
 export * from './AVPlayerModule.types';
 export * from './ExoPlayerModule.types';
+export * from './EpisodesListModule.types';
 
 import type { CollapsParserModule } from './NeomoviesCoreModule.types';
 import type { AVPlayerModule } from './AVPlayerModule.types';
 import type { ExoPlayerViewProps } from './ExoPlayerModule.types';
+import type { EpisodesListViewProps } from './EpisodesListModule.types';
 
 // Common parser module (both iOS and Android)
 const CollapsParser = requireNativeModule<CollapsParserModule>('NeomoviesCore');
@@ -23,6 +25,7 @@ const ExoPlayerView = Platform.OS === 'android'
   ? requireNativeViewManager<ExoPlayerViewProps>('ExoPlayerView')
   : null;
 
-export { CollapsParser, AVPlayer, ExoPlayerView };
-export default CollapsParser;
+const EpisodesListView = requireNativeViewManager<EpisodesListViewProps>('EpisodesListView');
 
+export { CollapsParser, AVPlayer, ExoPlayerView, EpisodesListView };
+export default CollapsParser;

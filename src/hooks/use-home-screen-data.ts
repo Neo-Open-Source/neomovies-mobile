@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 
 import { getPopularMovies, getTopFilms, getTopSeries } from '@/lib/neomovies-api';
+import { getOfflineModeSnapshot, subscribeOfflineMode } from '@/lib/offline-mode';
 import { PopularMovie } from '@/types/api';
 
 type HomeDataState = {
@@ -43,6 +44,7 @@ function isDifferent(a: HomeCachePayload | null, b: HomeCachePayload) {
 }
 
 export function useHomeScreenData() {
+  const [offlineState, setOfflineState] = useState(getOfflineModeSnapshot());
   const [state, setState] = useState<HomeDataState>({
     loading: memoryCache === null,
     error: null,
@@ -52,6 +54,15 @@ export function useHomeScreenData() {
   });
 
   const fetchFresh = async (mountedRef?: { current: boolean }) => {
+    if (offlineState.enabled) {
+      const hasCache = Boolean(memoryCache && (memoryCache.popular.length || memoryCache.topFilms.length || memoryCache.topSeries.length));
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: hasCache ? null : 'Offline mode is enabled, but no cached data is available yet.',
+      }));
+      return;
+    }
     try {
       const [popularRes, topFilmsRes, topSeriesRes] = await Promise.all([
         getPopularMovies(1),
@@ -92,6 +103,10 @@ export function useHomeScreenData() {
   };
 
   useEffect(() => {
+    return subscribeOfflineMode(setOfflineState);
+  }, []);
+
+  useEffect(() => {
     const mountedRef = { current: true };
 
     (async () => {
@@ -117,11 +132,11 @@ export function useHomeScreenData() {
     return () => {
       mountedRef.current = false;
     };
+  }, [offlineState.enabled]);
+
+  const refresh = useCallback(async () => {
+    await fetchFresh();
   }, []);
 
-  const refresh = async () => {
-    await fetchFresh();
-  };
-
-  return useMemo(() => ({ ...state, refresh }), [state]);
+  return useMemo(() => ({ ...state, refresh }), [state, refresh]);
 }

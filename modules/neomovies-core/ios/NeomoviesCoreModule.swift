@@ -14,6 +14,30 @@ public class NeomoviesCoreModule: Module {
     Name("NeomoviesCore")
     Events("onAVPlayerStateChanged", "onAVPlayerProgress", "onAVPlayerEpisodeChanged")
 
+    View(EpisodesListView.self) {
+      Events("onEpisodePress")
+
+      Prop("episodes") { (view: EpisodesListView, episodes: [[String: Any]]) in
+        view.setEpisodes(episodes)
+      }
+
+      Prop("textColor") { (view: EpisodesListView, color: String?) in
+        view.setTextColor(color)
+      }
+
+      Prop("secondaryTextColor") { (view: EpisodesListView, color: String?) in
+        view.setSecondaryTextColor(color)
+      }
+
+      Prop("borderColor") { (view: EpisodesListView, color: String?) in
+        view.setBorderColor(color)
+      }
+
+      Prop("backgroundColor") { (view: EpisodesListView, color: String?) in
+        view.setBackgroundColorHex(color)
+      }
+    }
+
     Function("parseCollapsCatalog") { (embedHtml: String) -> [String: Any] in
       return CollapsParser.parseCollapsCatalog(embedHtml: embedHtml)
     }

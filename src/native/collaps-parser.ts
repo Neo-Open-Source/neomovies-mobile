@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import CollapsParser from 'neomovies-core';
+import NeomoviesCore from 'neomovies-core';
 
 export type CollapsSubtitle = {
   url: string;
@@ -153,22 +153,22 @@ type NeomoviesCoreModule = {
     url: string;
     subtitles?: CollapsSubtitle[];
     headers?: Record<string, string>;
-    qualityVariants?: Array<{
+    qualityVariants?: {
       label?: string;
       url?: string;
       bandwidth?: number | null;
       height?: number | null;
-    }>;
-    audioVariants?: Array<{
+    }[];
+    audioVariants?: {
       title?: string;
       url?: string;
-      qualityVariants?: Array<{
+      qualityVariants?: {
         label?: string;
         url?: string;
         bandwidth?: number | null;
         height?: number | null;
-      }>;
-    }>;
+      }[];
+    }[];
   }>;
   collapsDeviceSupportsAv1?(): boolean;
   avPlayerLoad(
@@ -178,7 +178,7 @@ type NeomoviesCoreModule = {
     startPositionSec?: number | null
   ): Promise<AVPlayerState>;
   avPlayerConfigurePlaylist(
-    items: Array<{
+    items: {
       mediaId?: string;
       title?: string;
       url: string;
@@ -187,23 +187,23 @@ type NeomoviesCoreModule = {
       episode?: number;
       voiceovers?: string[];
       subtitles?: CollapsSubtitle[];
-      audioVariants?: Array<{
+      audioVariants?: {
         title: string;
         url: string;
-        qualityVariants?: Array<{
+        qualityVariants?: {
           label: string;
           url: string;
           bitrate?: number | null;
           height?: number | null;
-        }>;
-      }>;
-      qualityVariants?: Array<{
+        }[];
+      }[];
+      qualityVariants?: {
         label: string;
         url: string;
         bitrate?: number | null;
         height?: number | null;
-      }>;
-    }>,
+      }[];
+    }[],
     startIndex: number,
     autoplay: boolean,
     kpId?: number | null
@@ -270,7 +270,7 @@ function getNativeModule(): NeomoviesCoreModule {
       nativeModuleInitLogged = true;
     }
     debugLog('NeomoviesCore linked successfully');
-    nativeModule = CollapsParser as NeomoviesCoreModule;
+    nativeModule = NeomoviesCore as NeomoviesCoreModule;
   }
   return nativeModule;
 }
@@ -618,8 +618,8 @@ export async function resolveAllohaPlayableFromIframe(
 ): Promise<{
   url: string;
   subtitles: CollapsSubtitle[];
-  audioVariants?: Array<{ title: string; url: string; qualityVariants?: Array<{ label: string; url: string; bitrate?: number | null; height?: number | null }> }>;
-  qualityVariants?: Array<{ label: string; url: string; bitrate?: number | null; height?: number | null }>;
+  audioVariants?: { title: string; url: string; qualityVariants?: { label: string; url: string; bitrate?: number | null; height?: number | null }[] }[];
+  qualityVariants?: { label: string; url: string; bitrate?: number | null; height?: number | null }[];
   headers?: Record<string, string>;
 }> {
   const module = getNativeModule();
@@ -685,7 +685,7 @@ export async function avPlayerLoad(
 }
 
 export async function avPlayerConfigurePlaylist(
-  items: Array<{
+  items: {
     mediaId?: string;
     title?: string;
     url: string;
@@ -694,8 +694,8 @@ export async function avPlayerConfigurePlaylist(
     episode?: number;
     voiceovers?: string[];
     subtitles?: CollapsSubtitle[];
-    audioVariants?: Array<{ title: string; url: string }>;
-  }>,
+    audioVariants?: { title: string; url: string }[];
+  }[],
   startIndex = 0,
   autoplay = true,
   kpId?: number | null

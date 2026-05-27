@@ -82,4 +82,13 @@ export const ru: Dictionary = {
     sourceAlternativeTitle: 'Alloha',
     sourceAlternativeDesc: 'Провайдер Alloha',
   },
+  appStatus: {
+    offlineBanner: 'Офлайн режим активен.',
+    offlineNoCache: 'Кешированных данных пока нет.',
+    offlineSearchUnavailable: 'Поиск временно недоступен в офлайн режиме.',
+    noInternetTitle: 'Нет интернета',
+    noInternetDescription: 'Проверьте подключение к Wi-Fi или мобильной сети.',
+    maintenanceTitle: 'Технические работы',
+    maintenanceDescription: 'Сервис временно недоступен. Попробуйте позже.',
+  },
 };

@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { ChevronRight } from 'lucide-react-native';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 
 import { BackdropCard } from '@/components/cards/backdrop-card';
 import { PosterCard } from '@/components/cards/poster-card';
@@ -33,6 +34,9 @@ export function MediaCarouselSection({
       ? mediaCarouselSectionStyles.skeletonBackdrop
       : mediaCarouselSectionStyles.skeletonPoster;
   const skeletonCount = variant === 'backdrop' ? 3 : 5;
+  const estimatedItemSize = variant === 'backdrop' ? 280 : 160;
+  const listHeight = variant === 'backdrop' ? 157 : 210;
+  const drawDistance = estimatedItemSize * 6;
 
   return (
     <View style={mediaCarouselSectionStyles.sectionWrap}>
@@ -49,37 +53,34 @@ export function MediaCarouselSection({
           <ChevronRight size={22} color={theme.textSecondary} strokeWidth={2.6} />
         </Pressable>
       </View>
-      <ScrollView
+      <FlashList
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={mediaCarouselSectionStyles.row}>
-        {loading ? (
-          <View style={mediaCarouselSectionStyles.overlayRow}>
-            {Array.from({ length: skeletonCount }, (_, index) => (
-              <ThemedView
-                key={`skeleton-${index}`}
-                type="backgroundSelected"
-                style={skeletonStyle}
-              />
-            ))}
-          </View>
-        ) : (
-          <View style={mediaCarouselSectionStyles.overlayRow}>
-            {items.map((item) => (
-              <Pressable
-                key={item.id}
-                onPress={() =>
-                  router.push({
-                    pathname: '/media/[id]',
-                    params: { id: item.id, title: item.title },
-                  })
-                }>
-                <CardComponent item={item} />
-              </Pressable>
-            ))}
-          </View>
-        )}
-      </ScrollView>
+        data={loading ? Array.from({ length: skeletonCount }, (_, index) => ({ id: `skeleton-${index}` })) : items}
+        estimatedItemSize={estimatedItemSize}
+        drawDistance={drawDistance}
+        disableHorizontalListHeightMeasurement
+        removeClippedSubviews={false}
+        style={{ height: listHeight }}
+        contentContainerStyle={mediaCarouselSectionStyles.row}
+        ItemSeparatorComponent={() => <View style={mediaCarouselSectionStyles.rowSeparator} />}
+        keyExtractor={(item) => ('id' in item ? item.id : String(item))}
+        renderItem={({ item }) =>
+          loading ? (
+            <ThemedView type="backgroundSelected" style={skeletonStyle} />
+          ) : (
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: '/media/[id]',
+                  params: { id: item.id, title: item.title },
+                })
+              }>
+              <CardComponent item={item} />
+            </Pressable>
+          )
+        }>
+      </FlashList>
     </View>
   );
 }

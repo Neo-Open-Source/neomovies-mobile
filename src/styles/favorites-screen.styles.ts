@@ -1,6 +1,6 @@
 import { StyleSheet } from 'react-native';
 
-import { Radius, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 
 type ThemePalette = {
   backgroundElement: string;

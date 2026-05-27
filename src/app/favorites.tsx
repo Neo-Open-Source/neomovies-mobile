@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { Heart } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -11,11 +11,14 @@ import {
 } from 'react-native';
 
 import { PosterCard } from '@/components/cards/poster-card';
+import { AppStatusEmptyState } from '@/components/app-status-empty-state';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useFavoritesScreen } from '@/hooks/use-favorites-screen';
 import { useTheme } from '@/hooks/use-theme';
 import { useI18n } from '@/i18n';
+import { getOfflineModeSnapshot, subscribeOfflineMode } from '@/lib/offline-mode';
+import { setRouteHasCache } from '@/lib/screen-cache-state';
 import { categoryScreenStyles } from '@/styles/category-screen.styles';
 import { createFavoritesScreenStyles } from '@/styles/favorites-screen.styles';
 import { PopularMovie } from '@/types/api';
@@ -35,6 +38,12 @@ export default function FavoritesScreen() {
   const styles = createFavoritesScreenStyles(theme);
   const { loading, error, movies, isAuthenticated, refresh } = useFavoritesScreen();
   const [refreshing, setRefreshing] = useState(false);
+  const [offlineEnabled, setOfflineEnabled] = useState(getOfflineModeSnapshot().enabled);
+
+  useEffect(() => subscribeOfflineMode((next) => setOfflineEnabled(next.enabled)), []);
+  useEffect(() => {
+    setRouteHasCache('favorites', movies.length > 0);
+  }, [movies.length]);
 
   const columns = Math.max(
     1,
@@ -81,6 +90,16 @@ export default function FavoritesScreen() {
     }
   };
 
+  if (!loading && offlineEnabled && movies.length === 0) {
+    return (
+      <ThemedView style={categoryScreenStyles.container}>
+        <View style={[categoryScreenStyles.listContent, { justifyContent: 'center', flex: 1 }]}>
+          <AppStatusEmptyState />
+        </View>
+      </ThemedView>
+    );
+  }
+
   return (
     <ThemedView style={categoryScreenStyles.container}>
       <FlatList
@@ -91,6 +110,7 @@ export default function FavoritesScreen() {
         contentContainerStyle={categoryScreenStyles.listContent}
         columnWrapperStyle={columns > 1 ? categoryScreenStyles.row : undefined}
         showsVerticalScrollIndicator={false}
+        estimatedItemSize={260}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />
         }
