@@ -1,3 +1,4 @@
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { Platform } from 'react-native';
 import NeomoviesCore from 'neomovies-core';
 
@@ -704,11 +705,14 @@ export async function avPlayerConfigurePlaylist(
 }
 
 export async function avPlayerPresentNativeUI(): Promise<void> {
+  // Unlock orientation to allow player to rotate to landscape
+  await ScreenOrientation.unlockAsync();
   await getNativeModule().avPlayerPresentNativeUI();
 }
 
 export async function avPlayerDismissNativeUI(): Promise<void> {
   await getNativeModule().avPlayerDismissNativeUI();
+  // Orientation will be locked back via onAVPlayerDismissed event
 }
 
 export async function avPlayerSelectEpisode(index: number, autoplay = true): Promise<AVPlayerState> {

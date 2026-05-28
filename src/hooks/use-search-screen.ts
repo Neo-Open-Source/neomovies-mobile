@@ -106,13 +106,6 @@ export function useSearchScreen() {
     sourceQuery: string,
     options?: { trackHistory?: boolean; nextPage?: number; append?: boolean }
   ) => {
-    if (offlineState.enabled) {
-      setLoading(false);
-      setLoadingMore(false);
-      setError('Offline mode is enabled. Search is temporarily unavailable.');
-      return;
-    }
-
     const normalized = normalizeQuery(sourceQuery);
     if (normalized.length < AUTO_SEARCH_MIN_CHARS) {
       setError(null);

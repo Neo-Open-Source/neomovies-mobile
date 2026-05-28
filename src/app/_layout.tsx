@@ -1,10 +1,11 @@
 import { ThemeProvider, type Theme } from '@react-navigation/native';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { Slot, usePathname } from 'expo-router';
 import React from 'react';
 import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { AnimatedSplashScreen } from '@/components/splash-screen';
 import { NavBar } from '@/components/nav-bar';
 import { OfflineBanner } from '@/components/offline-banner';
 import { ScreenTitle } from '@/components/screen-title';
@@ -65,10 +66,14 @@ function TabLayoutContent() {
     void hydrateOfflineMode();
   }, []);
 
+  React.useEffect(() => {
+    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+  }, []);
+
   return (
     <AppTamaguiProvider>
       <ThemeProvider value={navigationTheme}>
-        <AnimatedSplashOverlay />
+        <AnimatedSplashScreen />
         <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
           <ScreenTitle />
           <OfflineBanner />

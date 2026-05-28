@@ -22,10 +22,10 @@ const AVPlayer = Platform.OS === 'ios'
 
 // Android-only ExoPlayer View
 const ExoPlayerView = Platform.OS === 'android'
-  ? requireNativeViewManager<ExoPlayerViewProps>('ExoPlayerView')
+  ? requireNativeViewManager<ExoPlayerViewProps>('NeomoviesCore', 'ExoPlayerView')
   : null;
 
-const EpisodesListView = requireNativeViewManager<EpisodesListViewProps>('EpisodesListView');
+const EpisodesListView = requireNativeViewManager<EpisodesListViewProps>('NeomoviesCore', 'EpisodesListView');
 
 export { CollapsParser, AVPlayer, ExoPlayerView, EpisodesListView };
 export default CollapsParser;

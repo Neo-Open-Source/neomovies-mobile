@@ -24,14 +24,13 @@ export default function AboutScreen() {
   const appIconUri = Constants.expoConfig?.icon || null;
   const appIconSource = appIconUri && /^https?:\/\//.test(appIconUri)
     ? { uri: appIconUri }
-    : require('@/assets/images/icon.png');
+    : require('@/assets/icons/splash-icon.png');
 
   return (
     <ThemedView style={styles.container}>
       <FlashList
         data={[{ id: 'about' }]}
         keyExtractor={(item) => item.id}
-        estimatedItemSize={900}
         showsVerticalScrollIndicator={false}
         renderItem={() => (
           <View style={styles.content}>
@@ -66,7 +65,7 @@ export default function AboutScreen() {
           <ListRowItem
             title={copy.about.changelog}
             subtitle={copy.about.changelogDesc}
-            onPress={() => console.log('Changelog')}
+            onPress={() => router.push('/changelog')}
             showChevron
             leftAccessory={
               <View style={styles.iconWrapper}>

@@ -12,11 +12,27 @@ internal class PlayerProgressStore(context: Context) {
 
     internal fun readStartPosition(progressKey: String, startFromBeginning: Boolean): Long {
         if (startFromBeginning) return 0L
+        
+        // For kp_ keys (series), check watched status in watchedPrefs
+        if (progressKey.startsWith("kp_")) {
+            val watched = watchedPrefs.getBoolean("${progressKey}_watched", false)
+            if (watched) return 0L
+            return watchedPrefs.getLong(progressKey, 0L)
+        }
+        
+        // For other keys, use regular prefs
+        if (isWatched(progressKey)) return 0L
         return prefs.getLong(progressKey, 0L)
     }
 
     internal fun readSavedDuration(progressKey: String): Long {
         if (progressKey.isBlank()) return 0L
+        
+        // For kp_ keys (series), read from watchedPrefs
+        if (progressKey.startsWith("kp_")) {
+            return watchedPrefs.getLong("${progressKey}_duration", 0L)
+        }
+        
         return prefs.getLong(durationPrefix + progressKey, 0L)
     }
 
@@ -28,10 +44,34 @@ internal class PlayerProgressStore(context: Context) {
     ): String {
         val parsed = PlayerMetadataResolver.parseSeasonEpisode(displayName)
             ?: PlayerMetadataResolver.parseSeasonEpisode(displayTitle)
-        return if (kpId != null && parsed != null) "pos_kp_${kpId}_$parsed" else "pos_$mediaId"
+        
+        // Extract season and episode numbers if available
+        if (kpId != null && parsed != null) {
+            val match = Regex("[Ss](\\d{1,2})[Ee](\\d{1,3})").find(parsed)
+            if (match != null) {
+                val season = match.groupValues[1].toIntOrNull()
+                val episode = match.groupValues[2].toIntOrNull()
+                if (season != null && episode != null) {
+                    // Use same format as persistEpisodeProgress for consistency
+                    return "kp_${kpId}_s${season}_e${episode}"
+                }
+            }
+        }
+        return "pos_$mediaId"
     }
 
     internal fun savePosition(progressKey: String, positionMs: Long, durationMs: Long? = null) {
+        // For kp_ keys (series), save to watchedPrefs to match persistEpisodeProgress
+        if (progressKey.startsWith("kp_")) {
+            val editor = watchedPrefs.edit().putLong(progressKey, positionMs)
+            if (durationMs != null && durationMs > 0L) {
+                editor.putLong("${progressKey}_duration", durationMs)
+            }
+            editor.apply()
+            return
+        }
+        
+        // For other keys, use regular prefs
         val editor = prefs.edit().putLong(progressKey, positionMs)
         if (durationMs != null && durationMs > 0L) {
             editor.putLong(durationPrefix + progressKey, durationMs)
@@ -92,5 +132,15 @@ internal class PlayerProgressStore(context: Context) {
             prefs.edit().putLong(progressKey, 0L).apply()
         }
         return 0L
+    }
+
+    internal fun markAsWatched(progressKey: String) {
+        if (progressKey.isBlank()) return
+        prefs.edit().putBoolean("${progressKey}_watched", true).apply()
+    }
+
+    internal fun isWatched(progressKey: String): Boolean {
+        if (progressKey.isBlank()) return false
+        return prefs.getBoolean("${progressKey}_watched", false)
     }
 }

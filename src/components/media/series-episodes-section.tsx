@@ -1,13 +1,9 @@
 import { ChevronDown, Menu } from "lucide-react-native";
-import {
-  Dispatch,
-  ReactElement,
-  SetStateAction,
-  useMemo,
-} from "react";
-import { Pressable, View } from "react-native";
+import { Dispatch, ReactElement, SetStateAction, useEffect, useMemo, useState } from "react";
+import { Alert, Pressable, ScrollView, View } from "react-native";
 
 import { ThemedText } from "@/components/themed-text";
+import { useI18n } from "@/i18n/provider";
 import {
   CollapsCatalogSeries,
   CollapsEpisode,
@@ -61,6 +57,7 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
     copy,
     theme,
     styles,
+    detailsId,
     detailsDescription,
     canReadProgress,
     selectedSeasonData,
@@ -71,9 +68,16 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
     sortedEpisodes,
     episodeMetaMap,
     seasonProgressMap,
+    posterUri,
+    resolveEpisodeStillUrl,
     onOpenEpisode,
     headerContent,
   } = props;
+  const { copy: t } = useI18n();
+  const [listHeight, setListHeight] = useState(1);
+  useEffect(() => {
+    setListHeight(1);
+  }, [selectedSeasonData.season]);
 
   const sortedSeasons = useMemo(() => {
     return seriesCatalog.seasons.slice().sort((a, b) => a.season - b.season);
@@ -93,6 +97,8 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
         title: meta?.name || item.title || `Episode ${item.episode}`,
         description: meta?.overview || detailsDescription,
         progress,
+        stillUrl: resolveEpisodeStillUrl(detailsId, item.season, item.episode, "large"),
+        fallbackPosterUrl: posterUri,
         tmdbRating: meta?.tmdbRating,
         imdbRating: meta?.imdbRating,
       };
@@ -100,14 +106,21 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
   }, [
     canReadProgress,
     detailsDescription,
+    detailsId,
     episodeMetaMap,
+    posterUri,
+    resolveEpisodeStillUrl,
     seasonProgressMap,
     sortedEpisodes,
   ]);
 
   return (
-    <View style={{ flex: 1, width: "100%" }}>
-      <View style={styles.flashListContent}>
+    <ScrollView
+      style={{ flex: 1, width: "100%" }}
+      contentContainerStyle={styles.flashListContent}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.flashListHeader}>
         {headerContent}
         <ThemedText style={styles.sectionTitle}>
           {copy.watchSelector.episodes}
@@ -163,16 +176,28 @@ export function SeriesEpisodesSection(props: SeriesEpisodesSectionProps) {
       </View>
 
       <EpisodesListView
-        style={{ flex: 1, width: "100%" }}
+        key={`episodes-${selectedSeasonData.season}-${nativeEpisodes.length}`}
+        style={{ width: "100%", height: listHeight, marginTop: 12 }}
         episodes={nativeEpisodes}
         textColor={theme.text}
         secondaryTextColor={theme.textSecondary}
         borderColor={theme.border}
         backgroundColor={theme.backgroundElement}
+        onContentHeight={(event) => {
+          const next = Math.max(1, Math.ceil(event.nativeEvent.height));
+          if (next !== listHeight) setListHeight(next);
+        }}
         onEpisodePress={(event) => {
           onOpenEpisode(event.nativeEvent.season, event.nativeEvent.episode);
         }}
+        onDownloadPress={(event: { nativeEvent: { season: number; episode: number } }) => {
+          // TODO: Add download functionality later
+          Alert.alert(
+            t.media.downloadComingSoon,
+            t.media.downloadComingSoonMessage
+          );
+        }}
       />
-    </View>
+    </ScrollView>
   );
 }

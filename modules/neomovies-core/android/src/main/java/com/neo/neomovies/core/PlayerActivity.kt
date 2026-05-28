@@ -28,6 +28,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.Space
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
@@ -40,8 +41,10 @@ import androidx.media3.ui.PlayerControlView
 import androidx.media3.ui.PlayerView
 import com.neo.neomovies.core.R
 import com.neo.neomovies.core.databinding.ActivityPlayerBinding
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 var isControlsLocked: Boolean = false
 
@@ -94,6 +97,23 @@ class PlayerActivity : BasePlayerActivity() {
                 }
             }
         }
+        
+        // Log AllohaEpisodeHolder state at activity start
+        Log.d("PlayerActivity", "onCreate: AllohaEpisodeHolder.episodeIframeUrls.size=${AllohaEpisodeHolder.episodeIframeUrls.size}, currentIndex=${AllohaEpisodeHolder.currentEpisodeIndex}")
+        
+        // Extract Alloha variants from intent or pending static variables
+        @Suppress("UNCHECKED_CAST")
+        val audioVariants = (intent.getSerializableExtra(EXTRA_ALLOHA_AUDIO_VARIANTS) as? ArrayList<Map<String, Any>>)
+            ?: pendingAllohaAudioVariants
+            ?: emptyList()
+        @Suppress("UNCHECKED_CAST")
+        val qualityVariants = (intent.getSerializableExtra(EXTRA_ALLOHA_QUALITY_VARIANTS) as? ArrayList<Map<String, Any>>)
+            ?: pendingAllohaQualityVariants
+            ?: emptyList()
+        
+        // Clear pending variants after use
+        pendingAllohaAudioVariants = null
+        pendingAllohaQualityVariants = null
 
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -103,6 +123,12 @@ class PlayerActivity : BasePlayerActivity() {
         if (kinopoiskId != null) {
             viewModel.setKinopoiskId(kinopoiskId)
         }
+        
+        // Set Alloha variants if present
+        if (audioVariants.isNotEmpty() || qualityVariants.isNotEmpty()) {
+            viewModel.setAllohaVariants(audioVariants, qualityVariants)
+        }
+        
         binding.playerView.player = viewModel.player
         binding.playerView.setControllerVisibilityListener(
             PlayerView.ControllerVisibilityListener { visibility ->
@@ -193,9 +219,6 @@ class PlayerActivity : BasePlayerActivity() {
         val qualityButton = binding.playerView.findViewById<ImageButton>(R.id.btn_quality)
         val aspectRatioButton = binding.playerView.findViewById<ImageButton>(R.id.btn_aspect_ratio)
 
-        // Quality selection: available for Collaps (DASH/HLS)
-        qualityButton.isVisible = useCollapsHeaders
-
         audioButton.isEnabled = false
         audioButton.imageAlpha = 75
         subtitleButton.isEnabled = false
@@ -206,11 +229,21 @@ class PlayerActivity : BasePlayerActivity() {
 
         qualityButton.isEnabled = false
         qualityButton.imageAlpha = 75
-
+        
+        // Quality button visibility based on Collaps headers or Alloha variants
+        qualityButton.isVisible = useCollapsHeaders || audioVariants.isNotEmpty() || qualityVariants.isNotEmpty()
+        
         audioButton.setOnClickListener {
-            TrackSelectionDialogFragment
-                .newInstance(C.TRACK_TYPE_AUDIO)
-                .show(supportFragmentManager, "trackselectiondialog")
+            val hasAllohaVariants = viewModel.getAllohaAudioVariants().isNotEmpty()
+            if (hasAllohaVariants) {
+                AllohaVariantSelectionDialogFragment
+                    .newInstance(AllohaVariantSelectionDialogFragment.TYPE_AUDIO)
+                    .show(supportFragmentManager, "allohavariantdialog")
+            } else {
+                TrackSelectionDialogFragment
+                    .newInstance(C.TRACK_TYPE_AUDIO)
+                    .show(supportFragmentManager, "trackselectiondialog")
+            }
         }
 
         subtitleButton.setOnClickListener {
@@ -220,9 +253,16 @@ class PlayerActivity : BasePlayerActivity() {
         }
 
         qualityButton.setOnClickListener {
-            TrackSelectionDialogFragment
-                .newInstance(C.TRACK_TYPE_VIDEO)
-                .show(supportFragmentManager, "trackselectiondialog")
+            val hasAllohaVariants = viewModel.getAllohaAudioVariants().isNotEmpty()
+            if (hasAllohaVariants) {
+                AllohaVariantSelectionDialogFragment
+                    .newInstance(AllohaVariantSelectionDialogFragment.TYPE_QUALITY)
+                    .show(supportFragmentManager, "allohavariantdialog")
+            } else {
+                TrackSelectionDialogFragment
+                    .newInstance(C.TRACK_TYPE_VIDEO)
+                    .show(supportFragmentManager, "trackselectiondialog")
+            }
         }
 
         speedButton.setOnClickListener {
@@ -245,6 +285,28 @@ class PlayerActivity : BasePlayerActivity() {
             pictureInPicture()
         }
 
+        // Episode navigation buttons for Alloha playlist
+        val prevButton = binding.playerView.findViewById<ImageButton>(R.id.exo_prev)
+        val nextButton = binding.playerView.findViewById<ImageButton>(R.id.exo_next)
+        
+        prevButton.setOnClickListener {
+            // Check at click time if this is Alloha episode playlist
+            if (AllohaEpisodeHolder.episodeIframeUrls.isNotEmpty()) {
+                switchAllohaEpisode(-1)
+            } else {
+                viewModel.previousEpisode()
+            }
+        }
+        
+        nextButton.setOnClickListener {
+            // Check at click time if this is Alloha episode playlist
+            if (AllohaEpisodeHolder.episodeIframeUrls.isNotEmpty()) {
+                switchAllohaEpisode(+1)
+            } else {
+                viewModel.nextEpisode()
+            }
+        }
+
         playPauseButton.setOnClickListener {
             if (viewModel.player.playWhenReady) {
                 viewModel.playWhenReady = false
@@ -259,11 +321,41 @@ class PlayerActivity : BasePlayerActivity() {
         val timeBar = binding.playerView.findViewById<DefaultTimeBar>(R.id.exo_progress)
         timeBar.setAdMarkerColor(Color.WHITE)
 
+        // Set episode info for navigation
+        val totalEpisodes = urls?.size ?: if (url.isNotEmpty()) 1 else 0
+        viewModel.setEpisodeInfo(startIndex, totalEpisodes)
+
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     viewModel.uiState.collect { uiState ->
                         videoNameTextView.text = uiState.currentItemTitle
+                        
+                        // Update prev/next button visibility based on current episode
+                        val prevButton = binding.playerView.findViewById<ImageButton>(R.id.exo_prev)
+                        val nextButton = binding.playerView.findViewById<ImageButton>(R.id.exo_next)
+                        
+                        // Use AllohaEpisodeHolder for Alloha sources
+                        val allohaEpisodeCount = AllohaEpisodeHolder.episodeIframeUrls.size
+                        val allohaCurrentIdx = AllohaEpisodeHolder.currentEpisodeIndex
+                        
+                        val canPrev = if (allohaEpisodeCount > 0) {
+                            AllohaEpisodeHolder.hasPreviousEpisode()
+                        } else {
+                            viewModel.canGoPreviousEpisode()
+                        }
+                        val canNext = if (allohaEpisodeCount > 0) {
+                            AllohaEpisodeHolder.hasNextEpisode()
+                        } else {
+                            viewModel.canGoNextEpisode()
+                        }
+                        
+                        Log.d("PlayerActivity", "Episode buttons: allohaEpisodes=$allohaEpisodeCount, currentIdx=$allohaCurrentIdx, canPrev=$canPrev, canNext=$canNext")
+                        
+                        prevButton.isEnabled = canPrev
+                        prevButton.imageAlpha = if (canPrev) 255 else 75
+                        nextButton.isEnabled = canNext
+                        nextButton.imageAlpha = if (canNext) 255 else 75
 
                         if (uiState.fileLoaded) {
                             audioButton.isEnabled = true
@@ -272,7 +364,8 @@ class PlayerActivity : BasePlayerActivity() {
                             subtitleButton.imageAlpha = 255
                             speedButton.isEnabled = true
                             speedButton.imageAlpha = 255
-                            if (useCollapsHeaders) {
+                            val hasAllohaVariants = viewModel.getAllohaAudioVariants().isNotEmpty()
+                            if (useCollapsHeaders || hasAllohaVariants) {
                                 qualityButton.isEnabled = true
                                 qualityButton.imageAlpha = 255
                             }
@@ -454,7 +547,16 @@ class PlayerActivity : BasePlayerActivity() {
             viewModel.player.clearVideoSurfaceView(binding.playerView.videoSurfaceView as SurfaceView)
         }
         handler.removeCallbacksAndMessages(null)
+        AllohaEpisodeHolder.clear()
+        // Invoke callback before finish to ensure orientation lock happens
+        onPlayerClosed?.invoke()
         finish()
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        // Ensure callback is invoked even if finishPlayback wasn't called
+        onPlayerClosed?.invoke()
     }
 
     private fun pipParams(
@@ -536,6 +638,91 @@ class PlayerActivity : BasePlayerActivity() {
         }
     }
 
+    private fun switchAllohaEpisode(delta: Int) {
+        val holder = AllohaEpisodeHolder
+        Log.d("PlayerActivity", "switchAllohaEpisode: delta=$delta, currentIndex=${holder.currentEpisodeIndex}, totalEpisodes=${holder.episodeIframeUrls.size}")
+        
+        val newIndex = holder.currentEpisodeIndex + delta
+        if (newIndex < 0 || newIndex >= holder.episodeIframeUrls.size) {
+            Log.d("PlayerActivity", "switchAllohaEpisode: newIndex=$newIndex out of bounds")
+            return
+        }
+        
+        val iframeUrl = holder.episodeIframeUrls.getOrNull(newIndex)
+        if (iframeUrl.isNullOrBlank()) {
+            Log.e("PlayerActivity", "switchAllohaEpisode: no iframe URL at index $newIndex")
+            return
+        }
+        
+        val episodeName = holder.episodeNames.getOrNull(newIndex) ?: "Episode ${newIndex + 1}"
+        Log.d("PlayerActivity", "switchAllohaEpisode: switching to episode '$episodeName' at $iframeUrl")
+        
+        // Save current progress before switching
+        viewModel.updatePlaybackProgress()
+        
+        val videoNameTextView = binding.playerView.findViewById<TextView>(R.id.video_name)
+        val displayTitle = if (holder.baseTitle.isNotBlank()) {
+            "${holder.baseTitle} • $episodeName"
+        } else {
+            episodeName
+        }
+        
+        // Show loading state
+        videoNameTextView.text = "Loading..."
+        
+        lifecycleScope.launch {
+            try {
+                // Resolve the new episode's iframe URL
+                val resolver = AllohaRuntimeResolver(this@PlayerActivity)
+                Log.d("PlayerActivity", "switchAllohaEpisode: resolving iframe...")
+                val resolved = resolver.resolve(iframeUrl)
+                Log.d("PlayerActivity", "switchAllohaEpisode: resolved=$resolved")
+                
+                val newUrl = resolved["url"] as? String
+                if (newUrl.isNullOrBlank()) {
+                    Log.e("PlayerActivity", "switchAllohaEpisode: no URL in resolved result")
+                    Toast.makeText(this@PlayerActivity, "Failed to load episode", Toast.LENGTH_SHORT).show()
+                    videoNameTextView.text = displayTitle
+                    return@launch
+                }
+                
+                // Update holder state
+                holder.currentEpisodeIndex = newIndex
+                
+                // Update audio/quality variants
+                @Suppress("UNCHECKED_CAST")
+                val audioVariants = (resolved["audioVariants"] as? List<Map<String, Any>>) ?: emptyList()
+                @Suppress("UNCHECKED_CAST")
+                val qualityVariants = (resolved["qualityVariants"] as? List<Map<String, Any>>) ?: emptyList()
+                holder.currentAudioVariants = audioVariants
+                holder.currentQualityVariants = qualityVariants
+                viewModel.setAllohaVariants(audioVariants, qualityVariants)
+                
+                // Update title
+                videoNameTextView.text = displayTitle
+                
+                // Reload player with new URL
+                Log.d("PlayerActivity", "switchAllohaEpisode: reloading player with URL=$newUrl")
+                viewModel.reloadWithUrl(newUrl, resolved["headers"] as? Map<String, String> ?: holder.headers)
+                
+                // Update button states
+                val prevButton = binding.playerView.findViewById<ImageButton>(R.id.exo_prev)
+                val nextButton = binding.playerView.findViewById<ImageButton>(R.id.exo_next)
+                prevButton.isEnabled = holder.hasPreviousEpisode()
+                prevButton.imageAlpha = if (holder.hasPreviousEpisode()) 255 else 75
+                nextButton.isEnabled = holder.hasNextEpisode()
+                nextButton.imageAlpha = if (holder.hasNextEpisode()) 255 else 75
+                
+                Log.d("PlayerActivity", "switchAllohaEpisode: success!")
+                
+            } catch (e: Exception) {
+                Log.e("PlayerActivity", "switchAllohaEpisode: failed", e)
+                Toast.makeText(this@PlayerActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                videoNameTextView.text = displayTitle
+            }
+        }
+    }
+
     companion object {
         const val EXTRA_URL = "url"
         const val EXTRA_URLS = "urls"
@@ -547,6 +734,18 @@ class PlayerActivity : BasePlayerActivity() {
         const val EXTRA_USE_COLLAPS_HEADERS = "use_collaps_headers"
         const val EXTRA_START_FROM_BEGINNING = "start_from_beginning"
         const val EXTRA_KINOPOISK_ID = "kinopoisk_id"
+        const val EXTRA_ALLOHA_AUDIO_VARIANTS = "alloha_audio_variants"
+        const val EXTRA_ALLOHA_QUALITY_VARIANTS = "alloha_quality_variants"
+        
+        // Callback invoked when player activity is closed
+        @Volatile
+        var onPlayerClosed: (() -> Unit)? = null
+        
+        // Pending variants set before activity launch
+        @Volatile
+        var pendingAllohaAudioVariants: ArrayList<Map<String, Any>>? = null
+        @Volatile
+        var pendingAllohaQualityVariants: ArrayList<Map<String, Any>>? = null
 
         fun intent(context: android.content.Context, url: String, title: String? = null, startFromBeginning: Boolean = false): Intent {
             return Intent(context, PlayerActivity::class.java).apply {

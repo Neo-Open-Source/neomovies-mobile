@@ -1,10 +1,15 @@
 import { router } from 'expo-router';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { useEffect, useRef, useState } from 'react';
+import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
 
 import { useContentSource } from '@/hooks/use-content-source';
 import { getProviderEmbedHtml } from '@/lib/neomovies-api';
 import { launchMoviePlayer, launchSeriesPlayer, resolveCatalog } from '@/hooks/watch-player/launchers';
 import { PlayerHeaders, WatchPlayerLaunchParams } from '@/hooks/watch-player/types';
+
+const { NeomoviesCore } = NativeModules;
+const eventEmitter = NeomoviesCore ? new NativeEventEmitter(NeomoviesCore) : null;
 
 export function useWatchPlayerLaunch({
   mediaId,
@@ -79,6 +84,32 @@ export function useWatchPlayerLaunch({
       cancelled = true;
     };
   }, [initialEpisode, initialSeason, mediaId, source, sourceReady, title]);
+
+  // Listen for player dismiss event to refresh episode list
+  useEffect(() => {
+    if (!eventEmitter) return;
+
+    const iosSubscription = eventEmitter.addListener('onAVPlayerDismissed', () => {
+      console.log('[WatchScreen] iOS Player dismissed, refreshing episode list');
+      // Lock orientation back to portrait after player dismissal
+      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      // Trigger a refresh by invalidating the launch key
+      launchedKeyRef.current = null;
+    });
+
+    const androidSubscription = eventEmitter.addListener('onExoPlayerClosed', () => {
+      console.log('[WatchScreen] Android Player closed, refreshing episode list');
+      // Lock orientation back to portrait after player dismissal
+      void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      // Trigger a refresh by invalidating the launch key
+      launchedKeyRef.current = null;
+    });
+
+    return () => {
+      iosSubscription.remove();
+      androidSubscription.remove();
+    };
+  }, []);
 
   return {
     loading,

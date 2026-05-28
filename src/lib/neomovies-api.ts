@@ -1,7 +1,14 @@
 import { API_BASE_URL, API_ORIGIN } from '@/lib/config';
 import { httpGet, httpGetText } from '@/lib/http';
 import { getStoredTokens, refreshAccessToken } from '@/lib/neoid-auth';
-import { MAINTENANCE_ERROR_CODE, NETWORK_ERROR_CODE, enableMaintenanceOfflineMode, enableNetworkOfflineMode, isMaintenancePayload } from '@/lib/offline-mode';
+import {
+  MAINTENANCE_ERROR_CODE,
+  NETWORK_ERROR_CODE,
+  disableOfflineMode,
+  enableMaintenanceOfflineMode,
+  enableNetworkOfflineMode,
+  isMaintenancePayload,
+} from '@/lib/offline-mode';
 import {
   ApiEnvelope,
   FavoriteItem,
@@ -68,8 +75,10 @@ async function authGet<T>(url: string): Promise<T> {
       enableMaintenanceOfflineMode();
       throw new Error(MAINTENANCE_ERROR_CODE);
     }
+    disableOfflineMode();
     throw new Error(`HTTP ${response.status}: ${text || 'Request failed'}`);
   }
+  disableOfflineMode();
   const payload = (text ? JSON.parse(text) : {}) as ApiEnvelope<T> | T;
   return unwrapEnvelope(payload);
 }
@@ -82,8 +91,10 @@ async function authMutate<T>(url: string, method: 'POST' | 'DELETE'): Promise<T>
       enableMaintenanceOfflineMode();
       throw new Error(MAINTENANCE_ERROR_CODE);
     }
+    disableOfflineMode();
     throw new Error(`HTTP ${response.status}: ${text || 'Request failed'}`);
   }
+  disableOfflineMode();
   const payload = (text ? JSON.parse(text) : {}) as ApiEnvelope<T> | T;
   return unwrapEnvelope(payload);
 }
@@ -123,7 +134,7 @@ export async function getMediaDetails(mediaId: string) {
 export async function getTvEpisodeDetails(mediaId: string, season: number, episode: number) {
   const rawId = mediaId.replace(/^kp_/, '');
   const url = `${API_BASE_URL}/tv/${rawId}/season/${season}/episode/${episode}`;
-  const response = await httpGet<ApiEnvelope<TvEpisodeDetails> | TvEpisodeDetails>(url);
+  const response = await httpGet<ApiEnvelope<TvEpisodeDetails> | TvEpisodeDetails>(url, { trackOffline: false });
   return unwrapEnvelope(response);
 }
 
@@ -188,7 +199,7 @@ async function loadProviderEmbedHtml(
   if (episode) qs.set('episode', String(episode));
   const suffix = qs.toString() ? `?${qs.toString()}` : '';
   const playerUrl = `${API_BASE_URL}/players/${provider}/kp/${rawId}${suffix}`;
-  const wrapperHtml = await httpGetText(playerUrl, { headers: { Accept: 'text/html' } });
+  const wrapperHtml = await httpGetText(playerUrl, { headers: { Accept: 'text/html' }, trackOffline: false });
 
   const iframeSource = extractIframeSource(wrapperHtml);
   if (!iframeSource) {
@@ -213,13 +224,11 @@ async function loadProviderEmbedHtml(
       },
     });
   } catch {
-    enableNetworkOfflineMode();
     throw new Error(NETWORK_ERROR_CODE);
   }
   const embedHtml = await iframeResponse.text();
   if (!iframeResponse.ok) {
     if (isMaintenancePayload(iframeResponse.status, embedHtml)) {
-      enableMaintenanceOfflineMode();
       throw new Error(MAINTENANCE_ERROR_CODE);
     }
     throw new Error(`HTTP ${iframeResponse.status}: ${embedHtml || 'Failed to load provider embed HTML'}`);
@@ -262,13 +271,11 @@ export async function getCollapsEmbedHtml(mediaId: string, season?: number, epis
       },
     });
   } catch {
-    enableNetworkOfflineMode();
     throw new Error(NETWORK_ERROR_CODE);
   }
   const embedHtml = await embedResponse.text();
   if (!embedResponse.ok) {
     if (isMaintenancePayload(embedResponse.status, embedHtml)) {
-      enableMaintenanceOfflineMode();
       throw new Error(MAINTENANCE_ERROR_CODE);
     }
     throw new Error(`HTTP ${embedResponse.status}: ${embedHtml || 'Failed to load Collaps embed HTML'}`);

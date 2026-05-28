@@ -51,6 +51,12 @@ public final class CollapsPlaybackProgressStore {
         return defaults.bool(forKey: watchedPrefix + mediaId)
     }
 
+    public func markAsWatched(mediaId: String) {
+        guard !mediaId.isEmpty else { return }
+        defaults.set(true, forKey: watchedPrefix + mediaId)
+        defaults.synchronize()
+    }
+
     public func loadUpdatedAtMs(mediaId: String) -> Int {
         guard !mediaId.isEmpty else { return 0 }
         return defaults.integer(forKey: updatedAtPrefix + mediaId)

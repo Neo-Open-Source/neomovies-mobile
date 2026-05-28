@@ -35,11 +35,32 @@ export type Dictionary = {
     branch: string;
     build: string;
   };
+  credits: {
+    libraries: string;
+    team: string;
+    thanks: string;
+    community: string;
+    madeWithLove: string;
+    roles: {
+      ernela: string;
+      chernuha: string;
+      iwnuply: string;
+      sophron: string;
+    };
+  };
+  changelog: {
+    versions: {
+      version: string;
+      changes: string[];
+    }[];
+  };
   media: {
     movie: string;
     tv: string;
     watch: string;
     download: string;
+    downloadComingSoon: string;
+    downloadComingSoonMessage: string;
   };
   home: {
     continueWatching: string;

@@ -54,15 +54,6 @@ export function useHomeScreenData() {
   });
 
   const fetchFresh = async (mountedRef?: { current: boolean }) => {
-    if (offlineState.enabled) {
-      const hasCache = Boolean(memoryCache && (memoryCache.popular.length || memoryCache.topFilms.length || memoryCache.topSeries.length));
-      setState((prev) => ({
-        ...prev,
-        loading: false,
-        error: hasCache ? null : 'Offline mode is enabled, but no cached data is available yet.',
-      }));
-      return;
-    }
     try {
       const [popularRes, topFilmsRes, topSeriesRes] = await Promise.all([
         getPopularMovies(1),
@@ -93,10 +84,11 @@ export function useHomeScreenData() {
       }
     } catch (error) {
       if (mountedRef && !mountedRef.current) return;
+      const hasCache = Boolean(memoryCache && (memoryCache.popular.length || memoryCache.topFilms.length || memoryCache.topSeries.length));
       setState((prev) => ({
         ...prev,
         loading: false,
-        error: error instanceof Error ? error.message : 'Request failed',
+        error: hasCache ? null : (error instanceof Error ? error.message : 'Request failed'),
       }));
       throw error;
     }

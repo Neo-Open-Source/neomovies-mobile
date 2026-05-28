@@ -2,9 +2,11 @@ package com.neo.neomovies.core
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.net.http.SslError
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
+import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -17,6 +19,23 @@ import java.net.URL
 import java.util.Locale
 
 internal class AllohaRuntimeResolver(private val context: Context) {
+    companion object {
+        private var uaIndex = 0
+        private val userAgents = listOf(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+        )
+        
+        @Synchronized
+        private fun nextUserAgent(): String {
+            val idx = uaIndex % userAgents.size
+            uaIndex++
+            return userAgents[idx]
+        }
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
     private var finished = false
@@ -48,9 +67,20 @@ internal class AllohaRuntimeResolver(private val context: Context) {
         wv.settings.mediaPlaybackRequiresUserGesture = false
         wv.settings.allowFileAccess = false
         wv.settings.allowContentAccess = false
+        wv.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
+        wv.settings.userAgentString = nextUserAgent()
+        
+        val cookieManager = android.webkit.CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        cookieManager.setAcceptThirdPartyCookies(wv, true)
+        
         wv.addJavascriptInterface(Bridge(), "AndroidAllohaResolver")
         wv.webChromeClient = WebChromeClient()
         wv.webViewClient = object : WebViewClient() {
+            @SuppressLint("WebViewClientOnReceivedSslError")
+            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                handler?.proceed()
+            }
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
         }
         startTimeout()
@@ -122,24 +152,45 @@ internal class AllohaRuntimeResolver(private val context: Context) {
         val base = baseUrl ?: return
         val payloads = listOfNotNull(bestHlsSourcePayload, bestMasterPayload, bestDirectPayload, fallback.ifBlank { null })
         val seen = mutableSetOf<String>()
+        
         for (payload in payloads) {
             if (!seen.add(payload)) continue
-            val parsed = AllohaRuntimeParser.parsePayload(payload, base, headers) ?: emptyMap()
-            val variants = (parsed["audioVariants"] as? List<*>)?.mapNotNull { raw ->
+            val parsed = AllohaRuntimeParser.parsePayload(payload, base, headers) ?: continue
+            
+            val audioVariants = (parsed["audioVariants"] as? List<*>)?.mapNotNull { raw ->
                 val item = raw as? Map<*, *> ?: return@mapNotNull null
                 val url = item["url"] as? String ?: return@mapNotNull null
                 if (url.isBlank()) return@mapNotNull null
                 val title = (item["title"] as? String)?.trim().orEmpty().ifBlank { "Unknown" }
-                mapOf("title" to title, "url" to url)
+                val qualityVariants = (item["qualityVariants"] as? List<*>) ?: emptyList<Any>()
+                mapOf(
+                    "title" to title,
+                    "url" to url,
+                    "qualityVariants" to qualityVariants
+                )
             }.orEmpty()
-            val variantUrl = variants.firstOrNull()?.get("url")
-            if (!variantUrl.isNullOrBlank()) {
-                finishOk(mapOf("url" to variantUrl, "subtitles" to (parsed["subtitles"] ?: emptyList<Any>()), "audioVariants" to variants))
+            
+            val firstUrl = audioVariants.firstOrNull()?.get("url") as? String
+            if (!firstUrl.isNullOrBlank()) {
+                finishOk(mapOf(
+                    "url" to firstUrl,
+                    "subtitles" to (parsed["subtitles"] ?: emptyList<Any>()),
+                    "audioVariants" to audioVariants,
+                    "qualityVariants" to (parsed["qualityVariants"] ?: emptyList<Any>()),
+                    "headers" to headers
+                ))
                 return
             }
+            
             val direct = parsed["videoURL"] as? String
             if (!direct.isNullOrBlank()) {
-                finishOk(mapOf("url" to direct, "subtitles" to (parsed["subtitles"] ?: emptyList<Any>()), "audioVariants" to emptyList<Any>()))
+                finishOk(mapOf(
+                    "url" to direct,
+                    "subtitles" to (parsed["subtitles"] ?: emptyList<Any>()),
+                    "audioVariants" to emptyList<Any>(),
+                    "qualityVariants" to (parsed["qualityVariants"] ?: emptyList<Any>()),
+                    "headers" to headers
+                ))
                 return
             }
         }
@@ -154,7 +205,8 @@ internal class AllohaRuntimeResolver(private val context: Context) {
         mainHandler.postDelayed(task, delayMs)
     }
 
-    private fun hasAllohaPlaybackHeaders(): Boolean = !headers["authorizations"].isNullOrBlank()
+    private fun hasAllohaPlaybackHeaders(): Boolean = 
+        !headers["authorizations"].isNullOrBlank() || !headers["accepts-controls"].isNullOrBlank()
 
     private fun isMasterPlaylistPayload(payload: String): Boolean = payload.contains("master.m3u8", ignoreCase = true)
 
@@ -190,9 +242,13 @@ internal class AllohaRuntimeResolver(private val context: Context) {
             mainHandler.post {
                 runCatching {
                     view.stopLoading()
+                    view.clearHistory()
+                    view.clearCache(true)
+                    view.clearFormData()
                     view.removeJavascriptInterface("AndroidAllohaResolver")
                     view.webViewClient = WebViewClient()
                     view.webChromeClient = WebChromeClient()
+                    view.loadDataWithBaseURL(null, "", "text/html", "UTF-8", null)
                     view.destroy()
                 }
             }
@@ -321,7 +377,11 @@ internal class AllohaRuntimeResolver(private val context: Context) {
                         this.addEventListener('message', function(event) {
                           try {
                             var msg = JSON.parse(event.data);
-                            if (msg && msg.edge_hash) { putHeader('authorizations', msg.edge_hash); post('headers', ''); }
+                            if (msg && msg.type === 'config_update' && msg.edge_hash) {
+                              putHeader('accepts-controls', msg.edge_hash);
+                              if (msg.ttl) putHeader('x-neo-config-ttl', String(msg.ttl));
+                              post('headers', '');
+                            }
                           } catch(e) {}
                         });
                       }

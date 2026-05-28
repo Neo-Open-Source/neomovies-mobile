@@ -289,15 +289,45 @@ object AllohaRuntimeParser {
     }
 
     private fun subtitleTracks(payload: String, baseUrl: URI): List<Map<String, String>> {
-        val patterns = listOf(
-            """\{\s*"url"\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)"\s*,\s*"name"\s*:\s*"([^"]+)"""",
-            """\{\s*url\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)"\s*,\s*name\s*:\s*"([^"]+)"""",
-            """\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"url"\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)""""
-        )
         val tracks = mutableListOf<Map<String, String>>()
-        patterns.forEach { pattern ->
-            tracks += subtitleTracksByPattern(payload, pattern, baseUrl)
+        
+        // Try to parse from JSON "tracks" array (like neomovies-android)
+        for (candidate in listOf(payload) + embeddedJSONObjectCandidates(payload)) {
+            try {
+                val obj = JSONObject(candidate)
+                val tracksArray = obj.optJSONArray("tracks")
+                if (tracksArray != null) {
+                    for (i in 0 until tracksArray.length()) {
+                        val track = tracksArray.optJSONObject(i) ?: continue
+                        if (track.optString("kind") != "captions") continue
+                        val url = track.optString("src", "")
+                        val lang = track.optString("language", "und")
+                        val name = track.optString("label", lang)
+                        if (url.isNotBlank()) {
+                            val fullUrl = if (url.startsWith("//")) "https:$url" else url
+                            tracks += mapOf(
+                                "name" to name,
+                                "url" to fullUrl,
+                                "language" to lang
+                            )
+                        }
+                    }
+                }
+            } catch (_: Exception) { }
         }
+        
+        // Fallback to regex patterns if no tracks found
+        if (tracks.isEmpty()) {
+            val patterns = listOf(
+                """\{\s*"url"\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)"\s*,\s*"name"\s*:\s*"([^"]+)"""",
+                """\{\s*url\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)"\s*,\s*name\s*:\s*"([^"]+)"""",
+                """\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"url"\s*:\s*"([^"]+\.(?:vtt|srt)(?:\?[^"]*)?)""""
+            )
+            patterns.forEach { pattern ->
+                tracks += subtitleTracksByPattern(payload, pattern, baseUrl)
+            }
+        }
+        
         if (tracks.isEmpty()) {
             firstURL(payload, listOf("vtt", "srt"), baseUrl)?.let { url ->
                 tracks += mapOf("name" to "Субтитры", "url" to url)

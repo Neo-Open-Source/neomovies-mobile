@@ -1,3 +1,4 @@
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { Platform } from 'react-native';
 
 import {
@@ -115,6 +116,34 @@ async function launchAllohaSeriesPlayer(
   }
 
   const resolved = await resolveAllohaIframeToPlayable(activeEpisode.playlist.primaryUrl, playbackHeaders);
+  
+  // Set Alloha variants before launching player (pass as JSON strings for Android)
+  if (NeomoviesCore.exoPlayerSetAllohaVariants && (resolved.audioVariants || resolved.qualityVariants)) {
+    await NeomoviesCore.exoPlayerSetAllohaVariants(
+      resolved.audioVariants ? JSON.stringify(resolved.audioVariants) : null,
+      resolved.qualityVariants ? JSON.stringify(resolved.qualityVariants) : null
+    );
+  }
+  
+  // Set episode playlist for in-player episode switching (Android)
+  if (NeomoviesCore.exoPlayerSetAllohaEpisodes && activeSeason) {
+    const sortedEpisodes = [...activeSeason.episodes].sort((a, b) => a.episode - b.episode);
+    const episodeIframeUrls = sortedEpisodes.map((ep) => ep.playlist.primaryUrl);
+    const episodeNames = sortedEpisodes.map((ep) => `S${String(ep.season).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')}`);
+    const startIndex = sortedEpisodes.findIndex((ep) => ep.season === activeEpisode.season && ep.episode === activeEpisode.episode);
+    
+    await NeomoviesCore.exoPlayerSetAllohaEpisodes(
+      JSON.stringify(episodeIframeUrls),
+      JSON.stringify(episodeNames),
+      Math.max(0, startIndex),
+      JSON.stringify(playbackHeaders),
+      title
+    );
+  }
+  
+  // Unlock orientation to allow player to rotate to landscape
+  await ScreenOrientation.unlockAsync();
+  
   await NeomoviesCore.exoPlayerLaunch?.(
     resolved.url,
     playbackHeaders,
@@ -178,6 +207,9 @@ async function launchCollapsSeriesPlayer(
     await avPlayerPresentNativeUI();
     return;
   }
+
+  // Unlock orientation to allow player to rotate to landscape (Android)
+  await ScreenOrientation.unlockAsync();
 
   const kpId = Number(mediaId.replace(/^kp_/, ''));
   const allohaVariantsAndroid = catalog.allohaVariants;

@@ -15,7 +15,7 @@ public class NeomoviesCoreModule: Module {
     Events("onAVPlayerStateChanged", "onAVPlayerProgress", "onAVPlayerEpisodeChanged")
 
     View(EpisodesListView.self) {
-      Events("onEpisodePress")
+      Events("onEpisodePress", "onContentHeight", "onDownloadPress")
 
       Prop("episodes") { (view: EpisodesListView, episodes: [[String: Any]]) in
         view.setEpisodes(episodes)
@@ -293,7 +293,7 @@ public class NeomoviesCoreModule: Module {
       self.bindPlayerCallbacksIfNeeded()
     }
 
-    AsyncFunction("avPlayerLoad") { (url: String, headers: [String: String], autoplay: Bool, startPositionSec: Double?) throws -> [String: Any] in
+    AsyncFunction("avPlayerLoad") { (url: String, headers: [String: String], autoplay: Bool, startPositionSec: Double?) async throws -> [String: Any] in
       let item = CollapsAVPlaylistItem(
         mediaId: url,
         title: "",
@@ -305,14 +305,14 @@ public class NeomoviesCoreModule: Module {
         subtitles: [],
         audioVariants: []
       )
-      _ = try CollapsAVPlayerController.shared.configurePlaylist(items: [item], startIndex: 0, autoplay: autoplay)
+      _ = try await CollapsAVPlayerController.shared.configurePlaylist(items: [item], startIndex: 0, autoplay: autoplay)
       if let startPositionSec {
         _ = CollapsAVPlayerController.shared.seek(to: startPositionSec)
       }
       return CollapsAVPlayerController.shared.snapshot().asDictionary()
     }
 
-    AsyncFunction("avPlayerConfigurePlaylist") { (items: [[String: Any]], startIndex: Int, autoplay: Bool, kpId: Int?) throws -> [String: Any] in
+    AsyncFunction("avPlayerConfigurePlaylist") { (items: [[String: Any]], startIndex: Int, autoplay: Bool, kpId: Int?) async throws -> [String: Any] in
       print("[NeomoviesCore] avPlayerConfigurePlaylist called with kpId: \(kpId ?? -1), items: \(items.count), startIndex: \(startIndex)")
       if let kpId = kpId {
         print("[NeomoviesCore] Setting kpId: \(kpId)")
@@ -359,7 +359,7 @@ public class NeomoviesCoreModule: Module {
           }
         )
       }
-      let state = try CollapsAVPlayerController.shared.configurePlaylist(items: playlist, startIndex: startIndex, autoplay: autoplay)
+      let state = try await CollapsAVPlayerController.shared.configurePlaylist(items: playlist, startIndex: startIndex, autoplay: autoplay)
       return state.asDictionary()
     }
 
@@ -562,6 +562,9 @@ public class NeomoviesCoreModule: Module {
     }
     CollapsAVPlayerController.shared.onEpisodeChanged = { [weak self] state in
       self?.sendEvent("onAVPlayerEpisodeChanged", state.asDictionary())
+    }
+    CollapsAVPlayerController.shared.onPlayerDismissed = { [weak self] in
+      self?.sendEvent("onAVPlayerDismissed", [:])
     }
   }
 }

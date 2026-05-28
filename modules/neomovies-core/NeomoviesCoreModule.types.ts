@@ -103,6 +103,24 @@ export type CollapsParserModule = {
     voiceNames?: string[] | null,
     kpId?: number | null
   ): Promise<void>;
+  exoPlayerSetAllohaVariants?(
+    audioVariantsJson: string | null,
+    qualityVariantsJson: string | null
+  ): Promise<void>;
+  exoPlayerSetAllohaEpisodes?(
+    episodeIframeUrlsJson: string | null,
+    episodeNamesJson: string | null,
+    startIndex: number,
+    headersJson: string | null,
+    title: string | null
+  ): Promise<void>;
+  exoPlayerGetAllohaEpisodeState?(): {
+    currentIndex: number;
+    totalEpisodes: number;
+    hasPrevious: boolean;
+    hasNext: boolean;
+    currentName: string;
+  };
   getCollapsWatchProgress?(
     kpId: number,
     season?: number | null,

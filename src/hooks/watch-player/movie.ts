@@ -1,3 +1,4 @@
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { Platform } from 'react-native';
 
 import { avPlayerConfigurePlaylist, avPlayerPresentNativeUI } from '@/native/collaps-parser';
@@ -62,6 +63,9 @@ async function launchAndroidMoviePlayer(
   title: string | null,
   mediaId: string
 ) {
+  // Unlock orientation to allow player to rotate to landscape
+  await ScreenOrientation.unlockAsync();
+  
   const kpId = Number(mediaId.replace(/^kp_/, ''));
   const allohaVariants = catalog.allohaVariants;
 

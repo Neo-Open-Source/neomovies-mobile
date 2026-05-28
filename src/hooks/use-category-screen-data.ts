@@ -56,17 +56,6 @@ export function useCategoryScreenData(kind: CategoryKind) {
   const requestIdRef = useRef(0);
 
   const loadPage = async (requestedPage: number, append: boolean, options?: { clearError?: boolean }) => {
-    if (offlineState.enabled) {
-      const cached = memoryCache[kind];
-      if (!cached || cached.items.length === 0) {
-        setError('Offline mode is enabled, but no cached data is available yet.');
-      } else {
-        setError(null);
-      }
-      setLoading(false);
-      setLoadingMore(false);
-      return;
-    }
     const requestId = append ? requestIdRef.current : requestIdRef.current + 1;
     if (!append) {
       requestIdRef.current = requestId;
@@ -154,13 +143,6 @@ export function useCategoryScreenData(kind: CategoryKind) {
       // Always refresh first page in background to keep category fresh.
       // We keep existing cards on screen and only replace if server has changes.
       const previous = memoryCache[kind] ?? null;
-      if (offlineState.enabled) {
-        setLoading(false);
-        if (!previous || (previous.items?.length ?? 0) === 0) {
-          setError('Offline mode is enabled, but no cached data is available yet.');
-        }
-        return;
-      }
       try {
         const response = await getCategoryPage(kind, 1);
         if (!mounted) return;

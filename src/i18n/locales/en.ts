@@ -37,11 +37,26 @@ export const en: Dictionary = {
     branch: 'Branch',
     build: 'Build',
   },
+  credits: {
+    libraries: 'Libraries & Open Source',
+    team: 'Development Team',
+    thanks: 'Special Thanks',
+    community: 'Community',
+    madeWithLove: 'Made with love for you <3',
+    roles: {
+      ernela: 'Main Developer & Founder',
+      chernuha: 'iOS Developer, neomovies.run domain',
+      iwnuply: 'Web Developer',
+      sophron: 'neomovies.ru domain',
+    },
+  },
   media: {
     movie: 'Movie',
     tv: 'Series',
     watch: 'Watch',
     download: 'Download',
+    downloadComingSoon: 'Download',
+    downloadComingSoonMessage: 'Download feature will be added later',
   },
   home: {
     continueWatching: 'Continue Watching',
@@ -90,5 +105,61 @@ export const en: Dictionary = {
     noInternetDescription: 'Your network is unavailable. Check mobile data or Wi-Fi connection.',
     maintenanceTitle: 'Maintenance',
     maintenanceDescription: 'Service is temporarily unavailable. Please try again later.',
+  },
+  changelog: {
+    versions: [
+      {
+        version: '0.1.0-pre7',
+        changes: [
+          'Cross-platform app based on Expo/React Native',
+          'Support for iOS and Android',
+          'Alloha source: HLS streaming, voiceover selection, quality selection',
+        ],
+      },
+      {
+        version: '0.1.0-pre6',
+        changes: [
+          'Added Alloha source: HLS proxy, voiceover selection, subtitles, intro/outro skip, auto quality',
+          'Episode switching in player (|< and >| buttons)',
+          'Fixed TV player: D-pad navigation, Back button, audio tracks and subtitles',
+          'UI optimizations: smooth poster loading, faster lists',
+          'Added languages: Ukrainian, Belarusian, Romanian',
+          'Auto-update via GitHub Releases',
+        ],
+      },
+      {
+        version: '0.1.0-pre5',
+        changes: [
+          'Updated API models for search and favorites',
+          'Added offline episode downloads with correct playback duration',
+          'Fixed search history (persisted across sessions)',
+          'Fixed delete button for downloaded episodes',
+          'Various bug fixes and stability improvements',
+        ],
+      },
+      {
+        version: '0.1.0-pre4',
+        changes: [
+          'New features for TV player and fixes for main player',
+          'Added series switching for Collaps source',
+        ],
+      },
+      {
+        version: '0.1.0-pre3',
+        changes: ['Bug fixes and TV player rewrite'],
+      },
+      {
+        version: '0.1.0-pre2',
+        changes: ['Added Collaps player and TV UI'],
+      },
+      {
+        version: '0.1.0-pre1',
+        changes: [
+          'Initial prerelease',
+          'Added players: ExoPlayer and libMPV',
+          'Added TorrServer and small improvements',
+        ],
+      },
+    ],
   },
 };

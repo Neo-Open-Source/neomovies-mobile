@@ -64,6 +64,14 @@ class NeomoviesCoreModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("NeomoviesCore")
     
+    Events("onExoPlayerClosed")
+    
+    OnCreate {
+      PlayerActivity.onPlayerClosed = {
+        sendEvent("onExoPlayerClosed", mapOf<String, Any>())
+      }
+    }
+    
     // Launch native ExoPlayer activity
     AsyncFunction("exoPlayerLaunch") { url: String, headers: Map<String, String>?, title: String?, kpId: Int? ->
       val activity = appContext.currentActivity ?: throw Exception("No current activity")
@@ -82,7 +90,14 @@ class NeomoviesCoreModule : Module() {
       activity.startActivity(intent)
     }
 
-    AsyncFunction("exoPlayerLaunchPlaylist") { urls: List<String>, startIndex: Int, headers: Map<String, String>?, names: List<String>?, title: String?, voiceNames: List<String>?, kpId: Int? ->
+    AsyncFunction("exoPlayerLaunchPlaylist") { 
+      urls: List<String>, 
+      startIndex: Int, 
+      headers: Map<String, String>?, 
+      names: List<String>?, 
+      title: String?, 
+      voiceNames: List<String>?, 
+      kpId: Int? ->
       val activity = appContext.currentActivity ?: throw Exception("No current activity")
       val intent = android.content.Intent(activity, PlayerActivity::class.java).apply {
         putStringArrayListExtra(PlayerActivity.EXTRA_URLS, ArrayList(urls))
@@ -104,6 +119,99 @@ class NeomoviesCoreModule : Module() {
         }
       }
       activity.startActivity(intent)
+    }
+    
+    AsyncFunction("exoPlayerSetAllohaVariants") {
+      audioVariantsJson: String?,
+      qualityVariantsJson: String? ->
+      // Parse JSON strings to avoid Expo Modules nested object conversion issues
+      PlayerActivity.pendingAllohaAudioVariants = audioVariantsJson?.let { json ->
+        try {
+          val arr = org.json.JSONArray(json)
+          ArrayList<Map<String, Any>>().apply {
+            for (i in 0 until arr.length()) {
+              val obj = arr.getJSONObject(i)
+              val map = mutableMapOf<String, Any>()
+              obj.keys().forEach { key ->
+                when (val value = obj.get(key)) {
+                  is org.json.JSONArray -> {
+                    val list = mutableListOf<Map<String, Any>>()
+                    for (j in 0 until value.length()) {
+                      val inner = value.getJSONObject(j)
+                      val innerMap = mutableMapOf<String, Any>()
+                      inner.keys().forEach { k -> innerMap[k] = inner.get(k) }
+                      list.add(innerMap)
+                    }
+                    map[key] = list
+                  }
+                  else -> map[key] = value
+                }
+              }
+              add(map)
+            }
+          }
+        } catch (e: Exception) { null }
+      }
+      PlayerActivity.pendingAllohaQualityVariants = qualityVariantsJson?.let { json ->
+        try {
+          val arr = org.json.JSONArray(json)
+          ArrayList<Map<String, Any>>().apply {
+            for (i in 0 until arr.length()) {
+              val obj = arr.getJSONObject(i)
+              val map = mutableMapOf<String, Any>()
+              obj.keys().forEach { key -> map[key] = obj.get(key) }
+              add(map)
+            }
+          }
+        } catch (e: Exception) { null }
+      }
+    }
+    
+    AsyncFunction("exoPlayerSetAllohaEpisodes") {
+      episodeIframeUrlsJson: String?,
+      episodeNamesJson: String?,
+      startIndex: Int,
+      headersJson: String?,
+      title: String? ->
+      val iframeUrls = episodeIframeUrlsJson?.let { json ->
+        try {
+          val arr = org.json.JSONArray(json)
+          (0 until arr.length()).map { arr.getString(it) }
+        } catch (e: Exception) { 
+          android.util.Log.e("NeomoviesCore", "Failed to parse episodeIframeUrlsJson", e)
+          emptyList() 
+        }
+      } ?: emptyList()
+      
+      val names = episodeNamesJson?.let { json ->
+        try {
+          val arr = org.json.JSONArray(json)
+          (0 until arr.length()).map { arr.getString(it) }
+        } catch (e: Exception) { 
+          android.util.Log.e("NeomoviesCore", "Failed to parse episodeNamesJson", e)
+          emptyList() 
+        }
+      } ?: emptyList()
+      
+      val headers = headersJson?.let { json ->
+        try {
+          val obj = org.json.JSONObject(json)
+          obj.keys().asSequence().associateWith { obj.getString(it) }
+        } catch (e: Exception) { emptyMap() }
+      } ?: emptyMap()
+      
+      android.util.Log.d("NeomoviesCore", "exoPlayerSetAllohaEpisodes: ${iframeUrls.size} episodes, startIndex=$startIndex, title=$title")
+      AllohaEpisodeHolder.setEpisodes(iframeUrls, names, startIndex, headers, title ?: "")
+    }
+    
+    Function("exoPlayerGetAllohaEpisodeState") {
+      mapOf(
+        "currentIndex" to AllohaEpisodeHolder.currentEpisodeIndex,
+        "totalEpisodes" to AllohaEpisodeHolder.episodeIframeUrls.size,
+        "hasPrevious" to AllohaEpisodeHolder.hasPreviousEpisode(),
+        "hasNext" to AllohaEpisodeHolder.hasNextEpisode(),
+        "currentName" to AllohaEpisodeHolder.currentEpisodeName()
+      )
     }
     
     // Export ExoPlayerView component
@@ -128,7 +236,7 @@ class NeomoviesCoreModule : Module() {
     }
 
     View(EpisodesListView::class) {
-      Events("onEpisodePress")
+      Events("onEpisodePress", "onContentHeight", "onDownloadPress")
 
       Prop("episodes") { view: EpisodesListView, episodes: List<Map<String, Any?>> ->
         view.setEpisodes(episodes)
@@ -319,11 +427,30 @@ class NeomoviesCoreModule : Module() {
             mapOf("title" to title, "url" to url)
           }
           ?: emptyList()
+        val parsedQualityVariants: List<Map<String, Any?>> = (parsed?.get("qualityVariants") as? List<*>)
+          ?.mapNotNull { raw ->
+            val item = raw as? Map<*, *> ?: return@mapNotNull null
+            item.entries
+              .filter { it.key is String }
+              .associate { (k, v) -> k as String to v }
+          }
+          ?: emptyList()
+        val parsedHeaders: Map<String, String> = (parsed?.get("httpHeaders") as? Map<*, *>)
+          ?.entries
+          ?.filter { it.key is String && it.value is String }
+          ?.associate { (k, v) -> k as String to v as String }
+          ?: emptyMap()
         val parsedUrl = parsedAudioVariants
           .firstOrNull { (it["url"] as? String).isNullOrBlank().not() }
           ?.get("url") as? String ?: (parsed?.get("videoURL") as? String ?: "")
         if (parsedUrl.isNotBlank()) {
-          return@AsyncFunction mapOf("url" to parsedUrl, "subtitles" to parsedSubtitles)
+          return@AsyncFunction mapOf(
+            "url" to parsedUrl,
+            "subtitles" to parsedSubtitles,
+            "audioVariants" to parsedAudioVariants,
+            "qualityVariants" to parsedQualityVariants,
+            "headers" to parsedHeaders
+          )
         }
         extractDirectStreamUrl(html, origin)?.let {
           return@AsyncFunction mapOf("url" to it, "subtitles" to parsedSubtitles)
