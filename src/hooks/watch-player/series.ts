@@ -1,4 +1,3 @@
-import * as ScreenOrientation from 'expo-screen-orientation';
 import { Platform } from 'react-native';
 
 import {
@@ -115,23 +114,13 @@ async function launchAllohaSeriesPlayer(
     return;
   }
 
-  const resolved = await resolveAllohaIframeToPlayable(activeEpisode.playlist.primaryUrl, playbackHeaders);
-  
-  // Set Alloha variants before launching player (pass as JSON strings for Android)
-  if (NeomoviesCore.exoPlayerSetAllohaVariants && (resolved.audioVariants || resolved.qualityVariants)) {
-    await NeomoviesCore.exoPlayerSetAllohaVariants(
-      resolved.audioVariants ? JSON.stringify(resolved.audioVariants) : null,
-      resolved.qualityVariants ? JSON.stringify(resolved.qualityVariants) : null
-    );
-  }
-  
   // Set episode playlist for in-player episode switching (Android)
   if (NeomoviesCore.exoPlayerSetAllohaEpisodes && activeSeason) {
     const sortedEpisodes = [...activeSeason.episodes].sort((a, b) => a.episode - b.episode);
     const episodeIframeUrls = sortedEpisodes.map((ep) => ep.playlist.primaryUrl);
     const episodeNames = sortedEpisodes.map((ep) => `S${String(ep.season).padStart(2, '0')}E${String(ep.episode).padStart(2, '0')}`);
     const startIndex = sortedEpisodes.findIndex((ep) => ep.season === activeEpisode.season && ep.episode === activeEpisode.episode);
-    
+
     await NeomoviesCore.exoPlayerSetAllohaEpisodes(
       JSON.stringify(episodeIframeUrls),
       JSON.stringify(episodeNames),
@@ -140,14 +129,25 @@ async function launchAllohaSeriesPlayer(
       title
     );
   }
-  
-  // Unlock orientation to allow player to rotate to landscape
-  await ScreenOrientation.unlockAsync();
-  
+
+  const resolved = await resolveAllohaIframeToPlayable(activeEpisode.playlist.primaryUrl, playbackHeaders);
+  const audioVariants = (resolved.audioVariants ?? []).filter((v) => v.url);
+  const qualityVariants = resolved.qualityVariants ?? [];
+
+  if (NeomoviesCore.exoPlayerSetAllohaVariants) {
+    await NeomoviesCore.exoPlayerSetAllohaVariants(
+      audioVariants.length > 0 ? JSON.stringify(audioVariants) : null,
+      qualityVariants.length > 0 ? JSON.stringify(qualityVariants) : null
+    );
+  }
+
+  const episodeName = `S${String(activeEpisode.season).padStart(2, '0')}E${String(activeEpisode.episode).padStart(2, '0')}`;
+  const displayTitle = title ? `${title} • ${episodeName}` : episodeName;
+
   await NeomoviesCore.exoPlayerLaunch?.(
     resolved.url,
-    playbackHeaders,
-    `${title ?? 'Series'} S${activeEpisode.season}E${activeEpisode.episode}`,
+    { ...playbackHeaders, ...(resolved.headers ?? {}) },
+    displayTitle,
     Number.isFinite(kpId) ? kpId : null
   );
 }
@@ -174,7 +174,8 @@ async function launchCollapsSeriesPlayer(
     const playlistItems = allohaVariants && allohaVariants.length > 1
       ? allohaVariants.map((variant) => ({
           mediaId: `${mediaId}_s${initialSeason}_e${initialEpisode}`,
-          title: variant.title || title || '',
+          title: title || '',
+          voiceoverLabel: variant.title,
           url: variant.url,
           headers,
           season: initialSeason,
@@ -207,9 +208,6 @@ async function launchCollapsSeriesPlayer(
     await avPlayerPresentNativeUI();
     return;
   }
-
-  // Unlock orientation to allow player to rotate to landscape (Android)
-  await ScreenOrientation.unlockAsync();
 
   const kpId = Number(mediaId.replace(/^kp_/, ''));
   const allohaVariantsAndroid = catalog.allohaVariants;

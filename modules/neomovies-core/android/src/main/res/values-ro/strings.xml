@@ -20,4 +20,6 @@
     <string name="player_controls_fast_forward">Derulare rapidă</string>
     <string name="player_controls_skip_back">Înapoi</string>
     <string name="player_controls_skip_forward">Înainte</string>
+    <string name="alloha_sheet_audio">Dublaj</string>
+    <string name="alloha_sheet_quality">Calitate</string>
 </resources>

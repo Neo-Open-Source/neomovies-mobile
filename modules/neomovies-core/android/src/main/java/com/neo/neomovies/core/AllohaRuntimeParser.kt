@@ -188,7 +188,7 @@ object AllohaRuntimeParser {
 
     private fun qualityURLStrings(value: Any): List<String> {
         return when (value) {
-            is String -> value.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            is String -> listOf(value)
             is JSONArray -> (0 until value.length()).flatMap { index ->
                 value.opt(index)?.let { qualityURLStrings(it) } ?: emptyList()
             }
@@ -231,6 +231,9 @@ object AllohaRuntimeParser {
 
     private fun makeURL(rawValue: String, baseUrl: URI): String? {
         val cleanValue = decodeJavaScriptString(rawValue)
+            .replace("&amp;", "&")
+            .replace("&#x2F;", "/")
+            .replace("&#47;", "/")
             .trim()
             .trim('"', '\'')
         if (cleanValue.isEmpty()) return null
@@ -243,6 +246,7 @@ object AllohaRuntimeParser {
 
     private fun isPlayable(url: String): Boolean {
         val path = url.lowercase(Locale.ROOT)
+        if (path.contains("blank.mp4") || path.contains("cdn.plyr.io")) return false
         return path.contains(".m3u8") || path.contains(".mpd") || path.contains(".mp4")
     }
 

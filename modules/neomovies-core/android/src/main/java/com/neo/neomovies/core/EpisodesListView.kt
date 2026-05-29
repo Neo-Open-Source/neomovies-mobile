@@ -13,6 +13,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.widget.AppCompatImageView
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
@@ -113,9 +114,16 @@ private class EpisodesAdapter(
   var backgroundColor: Int = Color.TRANSPARENT
 
   fun submit(next: List<EpisodeUi>) {
+    val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+      override fun getOldListSize() = items.size
+      override fun getNewListSize() = next.size
+      override fun areItemsTheSame(oldPos: Int, newPos: Int) =
+        items[oldPos].season == next[newPos].season && items[oldPos].episode == next[newPos].episode
+      override fun areContentsTheSame(oldPos: Int, newPos: Int) = items[oldPos] == next[newPos]
+    })
     items.clear()
     items.addAll(next)
-    notifyDataSetChanged()
+    diff.dispatchUpdatesTo(this)
   }
 
   override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -259,13 +267,13 @@ private class EpisodesAdapter(
     }
 
     val imageUrl = item.stillUrl ?: item.fallbackPosterUrl
+    Glide.with(holder.image).clear(holder.image)
+    holder.image.setImageDrawable(null)
     if (!imageUrl.isNullOrBlank()) {
       Glide.with(holder.image)
         .load(imageUrl)
         .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
         .into(holder.image)
-    } else {
-      holder.image.setImageDrawable(null)
     }
 
     val rating = when {
@@ -290,6 +298,12 @@ private class EpisodesAdapter(
   }
 
   override fun getItemCount(): Int = items.size
+
+  override fun onViewRecycled(holder: VH) {
+    super.onViewRecycled(holder)
+    Glide.with(holder.image).clear(holder.image)
+    holder.image.setImageDrawable(null)
+  }
 
   class VH(
     val root: LinearLayout,

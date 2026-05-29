@@ -114,6 +114,7 @@ export type CollapsParserModule = {
     headersJson: string | null,
     title: string | null
   ): Promise<void>;
+  exoPlayerLaunchAlloha?(iframeUrl: string, title?: string | null, kpId?: number | null): Promise<void>;
   exoPlayerGetAllohaEpisodeState?(): {
     currentIndex: number;
     totalEpisodes: number;

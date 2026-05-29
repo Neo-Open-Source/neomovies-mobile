@@ -90,19 +90,6 @@ final class CollapsAVUIManager {
                 canGoNextEpisode: useEpisodeNav && currentIndex < playlist.count - 1
             )
         }
-        Task { @MainActor in
-            vc.updateOverlay(
-                title: title,
-                subtitle: subtitle,
-                isPlaying: isPlaying,
-                currentTime: current,
-                duration: dur,
-                audioLabel: audioLabel,
-                qualityLabel: qualityLabel,
-                canGoPreviousEpisode: useEpisodeNav && currentIndex > 0,
-                canGoNextEpisode: useEpisodeNav && currentIndex < playlist.count - 1
-            )
-        }
     }
     
     /// Unified refresh method that takes state directly
@@ -189,7 +176,8 @@ final class CollapsAVUIManager {
 
         if isCustomAllohaVoiceoverPlaylist {
             guard playlist.indices.contains(currentIndex) else { return "Audio" }
-            return normalizedOverlayLabel(playlist[currentIndex].title, "Audio")
+            let label = playlist[currentIndex].voiceoverLabel ?? playlist[currentIndex].title
+            return normalizedOverlayLabel(label, "Audio")
         }
         guard let item = player?.currentItem,
               let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) else {
@@ -202,17 +190,18 @@ final class CollapsAVUIManager {
     }
     
     private static func checkIsCustomAllohaVoiceoverPlaylist(_ playlist: [CollapsAVPlaylistItem]) -> Bool {
-        guard playlist.count > 1 else { return false }
-        guard let first = playlist.first,
-              let season = first.season,
-              let episode = first.episode else {
-            return false
+        guard playlist.count > 1, let first = playlist.first else { return false }
+
+        // Case 1: same season/episode, different URLs (series dub playlist)
+        if let season = first.season, let episode = first.episode {
+            let allSameEpisode = playlist.allSatisfy { $0.season == season && $0.episode == episode }
+            guard allSameEpisode else { return false }
+            return Set(playlist.map { $0.url }).count > 1
         }
 
-        let allSameEpisode = playlist.allSatisfy { $0.season == season && $0.episode == episode }
-        if !allSameEpisode { return false }
-
-        let uniqueUrls = Set(playlist.map { $0.url })
-        return uniqueUrls.count > 1
+        // Case 2: no season/episode, same mediaId, different URLs (movie dub playlist)
+        guard playlist.allSatisfy({ $0.season == nil && $0.episode == nil }) else { return false }
+        guard playlist.allSatisfy({ $0.mediaId == first.mediaId }) else { return false }
+        return Set(playlist.map { $0.url }).count > 1
     }
 }

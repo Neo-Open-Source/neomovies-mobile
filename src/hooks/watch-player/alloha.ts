@@ -78,3 +78,4 @@ export function mergeResolvedSubtitles(
 ): CollapsSubtitle[] {
   return resolved.subtitles?.length ? resolved.subtitles : fallback;
 }
+

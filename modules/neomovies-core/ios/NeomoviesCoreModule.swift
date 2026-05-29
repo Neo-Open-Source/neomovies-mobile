@@ -12,7 +12,7 @@ public class NeomoviesCoreModule: Module {
 
   public func definition() -> ModuleDefinition {
     Name("NeomoviesCore")
-    Events("onAVPlayerStateChanged", "onAVPlayerProgress", "onAVPlayerEpisodeChanged")
+    Events("onAVPlayerStateChanged", "onAVPlayerProgress", "onAVPlayerEpisodeChanged", "onAVPlayerDismissed")
 
     View(EpisodesListView.self) {
       Events("onEpisodePress", "onContentHeight", "onDownloadPress")
@@ -146,16 +146,11 @@ public class NeomoviesCoreModule: Module {
         let payload = json["data"] as? [String: Any]
       else { return [:] }
 
-      let seasonsAny = payload["seasons"]
-      let seasonsObj: [String: Any]
-      if let dict = seasonsAny as? [String: Any] {
-        seasonsObj = dict
-      } else if let nsDict = seasonsAny as? NSDictionary {
-        seasonsObj = nsDict as? [String: Any] ?? [:]
-      } else {
-        seasonsObj = [:]
+      func castDict(_ value: Any?) -> [String: Any]? {
+        if let d = value as? [String: Any] { return d }
+        if let nd = value as? NSDictionary { return nd as? [String: Any] }
+        return nil
       }
-      if seasonsObj.isEmpty { return [:] }
 
       func intFromAny(_ value: Any?, fallback: Int = 1) -> Int {
         if let n = value as? Int { return n }
@@ -164,23 +159,79 @@ public class NeomoviesCoreModule: Module {
         return fallback
       }
 
-      func firstIframe(from translationAny: Any?) -> String? {
-        let translationObj: [String: Any]
-        if let dict = translationAny as? [String: Any] {
-          translationObj = dict
-        } else if let nsDict = translationAny as? NSDictionary {
-          translationObj = nsDict as? [String: Any] ?? [:]
-        } else {
-          translationObj = [:]
-        }
-        for (_, transRaw) in translationObj {
-          if let transMap = transRaw as? [String: Any],
-             let iframe = transMap["iframe"] as? String,
-             !iframe.isEmpty {
-            return iframe
+      // --- Movie: category == 1 or has translation_iframe but no seasons ---
+      let category = intFromAny(payload["category"], fallback: 0)
+      let translationIframeAny = payload["translation_iframe"]
+      let hasSeasons = castDict(payload["seasons"]) != nil
+      if (category == 1 || translationIframeAny != nil) && !hasSeasons {
+        guard let transObj = castDict(translationIframeAny) else {
+          // Fallback to single iframe
+          if let singleIframe = payload["iframe"] as? String, !singleIframe.isEmpty {
+            return [
+              "kind": "movie",
+              "source": "alloha",
+              "playlist": [
+                "primaryUrl": singleIframe,
+                "hlsUrl": NSNull(),
+                "dashUrl": NSNull(),
+                "voiceovers": [],
+                "subtitles": []
+              ],
+              "allohaVariants": [[
+                "id": "0-\(singleIframe)",
+                "title": "Основной",
+                "url": singleIframe
+              ]]
+            ]
           }
-          if let ns = transRaw as? NSDictionary,
-             let iframe = ns["iframe"] as? String,
+          return [:]
+        }
+
+        var variants: [[String: Any]] = []
+        // Sort by key to get consistent ordering
+        for key in transObj.keys.sorted() {
+          guard let transMap = castDict(transObj[key]),
+                let iframe = transMap["iframe"] as? String,
+                !iframe.isEmpty else { continue }
+          let name = (transMap["name"] as? String) ?? "Озвучка \(variants.count + 1)"
+          variants.append([
+            "id": "\(key)-\(iframe)",
+            "title": name,
+            "url": iframe
+          ])
+        }
+
+        if variants.isEmpty {
+          if let singleIframe = payload["iframe"] as? String, !singleIframe.isEmpty {
+            variants.append(["id": "0-\(singleIframe)", "title": "Основной", "url": singleIframe])
+          } else {
+            return [:]
+          }
+        }
+
+        let primaryIframe = (variants.first?["url"] as? String) ?? ""
+        return [
+          "kind": "movie",
+          "source": "alloha",
+          "playlist": [
+            "primaryUrl": primaryIframe,
+            "hlsUrl": NSNull(),
+            "dashUrl": NSNull(),
+            "voiceovers": [],
+            "subtitles": []
+          ],
+          "allohaVariants": variants
+        ]
+      }
+
+      // --- Series: parse seasons/episodes ---
+      guard let seasonsObj = castDict(payload["seasons"]), !seasonsObj.isEmpty else { return [:] }
+
+      func firstIframe(from translationAny: Any?) -> String? {
+        guard let transObj = castDict(translationAny) else { return nil }
+        for (_, transRaw) in transObj {
+          if let transMap = castDict(transRaw),
+             let iframe = transMap["iframe"] as? String,
              !iframe.isEmpty {
             return iframe
           }
@@ -190,38 +241,14 @@ public class NeomoviesCoreModule: Module {
 
       var seasons: [[String: Any]] = []
       for (seasonKey, seasonRaw) in seasonsObj {
-        let seasonMap: [String: Any]
-        if let dict = seasonRaw as? [String: Any] {
-          seasonMap = dict
-        } else if let nsDict = seasonRaw as? NSDictionary {
-          seasonMap = nsDict as? [String: Any] ?? [:]
-        } else {
-          seasonMap = [:]
-        }
-        if seasonMap.isEmpty { continue }
+        guard let seasonMap = castDict(seasonRaw), !seasonMap.isEmpty else { continue }
 
         let seasonNum = intFromAny(seasonMap["season"] ?? seasonKey, fallback: Int(seasonKey) ?? 1)
-        let episodesAny = seasonMap["episodes"]
-        let episodesObj: [String: Any]
-        if let dict = episodesAny as? [String: Any] {
-          episodesObj = dict
-        } else if let nsDict = episodesAny as? NSDictionary {
-          episodesObj = nsDict as? [String: Any] ?? [:]
-        } else {
-          episodesObj = [:]
-        }
+        let episodesObj = castDict(seasonMap["episodes"]) ?? [:]
 
         var episodes: [[String: Any]] = []
         for (episodeKey, episodeRaw) in episodesObj {
-          let episodeMap: [String: Any]
-          if let dict = episodeRaw as? [String: Any] {
-            episodeMap = dict
-          } else if let nsDict = episodeRaw as? NSDictionary {
-            episodeMap = nsDict as? [String: Any] ?? [:]
-          } else {
-            episodeMap = [:]
-          }
-          if episodeMap.isEmpty { continue }
+          guard let episodeMap = castDict(episodeRaw), !episodeMap.isEmpty else { continue }
 
           let episodeNum = intFromAny(episodeMap["episode"] ?? episodeKey, fallback: Int(episodeKey) ?? 1)
           let iframe = firstIframe(from: episodeMap["translation"])
@@ -242,7 +269,6 @@ public class NeomoviesCoreModule: Module {
           ])
         }
 
-        // Fallback: if season has no explicit episodes, still expose season-level iframe as episode 1
         if episodes.isEmpty, let seasonIframe = seasonMap["iframe"] as? String, !seasonIframe.isEmpty {
           episodes.append([
             "season": seasonNum,
@@ -356,7 +382,8 @@ public class NeomoviesCoreModule: Module {
             let bitrate = quality["bitrate"] as? Double ?? quality["bandwidth"] as? Double ?? 0
             let height = quality["height"] as? Int
             return CollapsAVQualityOption(index: 0, bitrate: bitrate, height: height, label: label, isAuto: false, url: qurl)
-          }
+          },
+          voiceoverLabel: dict["voiceoverLabel"] as? String
         )
       }
       let state = try await CollapsAVPlayerController.shared.configurePlaylist(items: playlist, startIndex: startIndex, autoplay: autoplay)

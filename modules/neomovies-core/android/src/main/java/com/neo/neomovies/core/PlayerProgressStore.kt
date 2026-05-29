@@ -136,7 +136,11 @@ internal class PlayerProgressStore(context: Context) {
 
     internal fun markAsWatched(progressKey: String) {
         if (progressKey.isBlank()) return
-        prefs.edit().putBoolean("${progressKey}_watched", true).apply()
+        if (progressKey.startsWith("kp_")) {
+            watchedPrefs.edit().putBoolean("${progressKey}_watched", true).apply()
+        } else {
+            prefs.edit().putBoolean("${progressKey}_watched", true).apply()
+        }
     }
 
     internal fun isWatched(progressKey: String): Boolean {

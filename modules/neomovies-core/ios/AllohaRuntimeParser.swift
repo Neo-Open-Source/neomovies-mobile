@@ -124,10 +124,7 @@ enum AllohaRuntimeParser {
 
     private static func qualityURLStrings(from value: Any) -> [String] {
         if let string = value as? String {
-            return string
-                .split(separator: ",")
-                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
+            return [string]
         }
         if let values = value as? [Any] {
             return values.flatMap { qualityURLStrings(from: $0) }
@@ -283,20 +280,29 @@ enum AllohaRuntimeParser {
     }
 
     private static func decodeJavaScriptString(_ value: String) -> String {
-        var decoded = value.replacingOccurrences(of: "\\/", with: "/")
-        decoded = decoded.replacingOccurrences(of: "\\u0026", with: "&")
-        decoded = decoded.replacingOccurrences(of: "\\u003d", with: "=")
-        decoded = decoded.replacingOccurrences(of: "\\u002f", with: "/")
-        decoded = decoded.replacingOccurrences(of: "\\u003a", with: ":")
-        decoded = decoded.replacingOccurrences(of: "\\u0025", with: "%")
-        decoded = decoded.replacingOccurrences(of: "\\n", with: "")
-        decoded = decoded.replacingOccurrences(of: "\\t", with: "")
-        decoded = decoded.replacingOccurrences(of: "\\\\", with: "\\")
-        return decoded
+        let quoted = "\"\(value)\""
+        if let data = quoted.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(String.self, from: data) {
+            return decoded
+        }
+        // Fallback: manual decode of common sequences
+        return value
+            .replacingOccurrences(of: "\\/", with: "/")
+            .replacingOccurrences(of: "\\u0026", with: "&")
+            .replacingOccurrences(of: "\\u003d", with: "=")
+            .replacingOccurrences(of: "\\u002f", with: "/")
+            .replacingOccurrences(of: "\\u003a", with: ":")
+            .replacingOccurrences(of: "\\u0025", with: "%")
+            .replacingOccurrences(of: "\\n", with: "")
+            .replacingOccurrences(of: "\\t", with: "")
+            .replacingOccurrences(of: "\\\\", with: "\\")
     }
 
     private static func makeURL(from rawValue: String, baseURL: URL) -> URL? {
         let cleanValue = decodeJavaScriptString(rawValue)
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&#x2F;", with: "/")
+            .replacingOccurrences(of: "&#47;", with: "/")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
         guard !cleanValue.isEmpty else { return nil }

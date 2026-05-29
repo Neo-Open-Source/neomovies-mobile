@@ -18,7 +18,8 @@ export default function AboutScreen() {
   const { copy } = useI18n();
   const appName = Constants.expoConfig?.name || copy.appName;
   const version = Constants.nativeAppVersion || Constants.expoConfig?.version || '—';
-  const branch = ((Constants.expoConfig?.extra as { branch?: string } | undefined)?.branch)
+  const branch = ((Constants.expoConfig?.extra as { branch?: string; releaseType?: string } | undefined)?.releaseType)
+    || ((Constants.expoConfig?.extra as { branch?: string } | undefined)?.branch)
     || (__DEV__ ? 'dev' : 'release');
   const build = Constants.nativeBuildVersion || '—';
   const appIconUri = Constants.expoConfig?.icon || null;

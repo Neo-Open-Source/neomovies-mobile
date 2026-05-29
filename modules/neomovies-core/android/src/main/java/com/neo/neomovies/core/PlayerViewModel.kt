@@ -106,7 +106,7 @@ class PlayerViewModel(
                 .mapKeys { (key, _) -> key.removePrefix("HEADER_") }
                 .filterValues { it.isNotBlank() }
         }.getOrDefault(emptyMap())
-        
+
         if (prefixed.isNotEmpty()) {
             prefixed
         } else {
@@ -116,6 +116,8 @@ class PlayerViewModel(
             )
         }
     }
+
+    private var resolvedExtraHeaders: Map<String, String> = emptyMap()
 
     private val _uiState = MutableStateFlow(UiState(currentItemTitle = "", fileLoaded = false))
     val uiState = _uiState.asStateFlow()
@@ -262,6 +264,7 @@ class PlayerViewModel(
         startFromBeginning: Boolean,
         kinopoiskId: Int? = null,
         episodeProgressCallback: ((Int, Int, Int, Long, Long) -> Unit)? = null,
+        extraHeaders: Map<String, String> = emptyMap(),
     ) {
         Log.d("PlayerVM", "initializePlayer: urls=$urls, startIndex=$startIndex, title=$title")
         
@@ -276,7 +279,11 @@ class PlayerViewModel(
             kinopoiskId = kinopoiskId,
         )
         onEpisodeProgressUpdate = episodeProgressCallback
-        _uiState.update { it.copy(currentItemTitle = baseTitle, fileLoaded = false) }
+        val initialTitle = if (AllohaEpisodeHolder.episodeIframeUrls.isNotEmpty() && baseTitle.isNotBlank()) {
+            val epName = AllohaEpisodeHolder.currentEpisodeName()
+            if (epName.isNotBlank()) "$baseTitle • $epName" else baseTitle
+        } else baseTitle
+        _uiState.update { it.copy(currentItemTitle = initialTitle, fileLoaded = false) }
         appliedFirstAudioOverride = false
 
         val resolvedUrls = urls
@@ -420,10 +427,12 @@ class PlayerViewModel(
     private fun progressKey(): String {
         val mediaItem = player.currentMediaItem
         val mediaId = mediaItem?.mediaId ?: return ""
+        val allohaEpisodeName = if (AllohaEpisodeHolder.episodeIframeUrls.isNotEmpty())
+            AllohaEpisodeHolder.currentEpisodeName() else null
         return progressStore.buildProgressKey(
             mediaId = mediaId,
-            displayName = mediaItem.mediaMetadata.extras?.getString("display_name").orEmpty(),
-            displayTitle = buildDisplayTitle(mediaItem),
+            displayName = allohaEpisodeName ?: mediaItem.mediaMetadata.extras?.getString("display_name").orEmpty(),
+            displayTitle = allohaEpisodeName ?: buildDisplayTitle(mediaItem),
             kpId = kpId
         )
     }
@@ -443,16 +452,17 @@ class PlayerViewModel(
         val position = player.currentPosition
         progressStore.savePosition(key, position, player.duration.takeIf { it > 0L })
         savedStateHandle["position"] = position
-        
-        // Update Collaps episode progress if available
-        val displayName = player.currentMediaItem?.mediaMetadata?.extras?.getString("display_name").orEmpty()
-        val displayTitle = buildDisplayTitle(player.currentMediaItem)
+
+        // For Alloha, use episode name from holder for season/episode tracking
+        val allohaEpisodeName = if (AllohaEpisodeHolder.episodeIframeUrls.isNotEmpty())
+            AllohaEpisodeHolder.currentEpisodeName() else null
+
+        val displayName = allohaEpisodeName
+            ?: player.currentMediaItem?.mediaMetadata?.extras?.getString("display_name").orEmpty()
+        val displayTitle = allohaEpisodeName
+            ?: buildDisplayTitle(player.currentMediaItem)
         val se = parseSeasonEpisode(displayName)
             ?: parseSeasonEpisode(displayTitle)
-            ?: run {
-                val url = player.currentMediaItem?.localConfiguration?.uri?.toString().orEmpty()
-                parseSeasonEpisode(url.substringAfterLast('/').substringAfterLast('\\'))
-            }
         val currentKpId = kpId
         val duration = player.duration
         if (se != null && baseTitle.isNotBlank()) {
@@ -540,7 +550,10 @@ class PlayerViewModel(
             if (key != null) {
                 progressStore.markAsWatched(key)
             }
-            
+
+            // In Alloha episode mode, episode navigation is handled by PlayerActivity
+            if (AllohaEpisodeHolder.episodeIframeUrls.isNotEmpty()) return
+
             val currentIndex = player.currentMediaItemIndex
             val hasNextItem = currentIndex + 1 < player.mediaItemCount
             if (hasNextItem) {
@@ -642,10 +655,41 @@ class PlayerViewModel(
         audioVariants: List<Map<String, Any>>,
         qualityVariants: List<Map<String, Any>>
     ) {
+        // Try to preserve selected audio by title across episode switches
+        val prevAudioTitle = allohaAudioVariants.getOrNull(selectedAllohaAudioIndex)?.get("title") as? String
+        val prevQualityLabel = if (selectedAllohaQualityIndex >= 0) {
+            val prevAudio = allohaAudioVariants.getOrNull(selectedAllohaAudioIndex)
+            val prevQv = (prevAudio?.get("qualityVariants") as? List<*>)?.mapNotNull { it as? Map<*, *> }
+                ?.takeIf { it.isNotEmpty() } ?: allohaQualityVariants.mapNotNull { it as? Map<*, *> }
+            prevQv.getOrNull(selectedAllohaQualityIndex)?.get("label") as? String
+        } else null
+
         allohaAudioVariants = audioVariants
         allohaQualityVariants = qualityVariants
-        selectedAllohaAudioIndex = 0
-        selectedAllohaQualityIndex = -1
+
+        // Restore audio selection by title
+        val restoredAudioIndex = if (prevAudioTitle != null) {
+            audioVariants.indexOfFirst { (it["title"] as? String) == prevAudioTitle }.takeIf { it >= 0 }
+        } else null
+        selectedAllohaAudioIndex = restoredAudioIndex ?: 0
+
+        // Restore quality selection by label
+        if (prevQualityLabel != null) {
+            val newAudio = audioVariants.getOrNull(selectedAllohaAudioIndex)
+            val newQv = (newAudio?.get("qualityVariants") as? List<*>)?.mapNotNull { it as? Map<*, *> }
+                ?.takeIf { it.isNotEmpty() } ?: qualityVariants.mapNotNull { it as? Map<*, *> }
+            val restoredQualityIndex = newQv.indexOfFirst { (it["label"] as? String) == prevQualityLabel }.takeIf { it >= 0 }
+            if (restoredQualityIndex != null) {
+                selectedAllohaQualityIndex = restoredQualityIndex
+                isAutoQuality = false
+            } else {
+                selectedAllohaQualityIndex = -1
+                isAutoQuality = true
+            }
+        } else {
+            selectedAllohaQualityIndex = -1
+            isAutoQuality = true
+        }
     }
 
     fun getAllohaAudioVariants(): List<Map<String, String>> {
@@ -667,23 +711,18 @@ class PlayerViewModel(
             allohaQualityVariants.mapNotNull { it as? Map<*, *> }
         }
         
-        // Check max supported AV1 resolution
-        val maxAv1Height = getMaxSupportedAv1Height()
-        
-        Log.d("PlayerVM", "getAllohaQualityVariants: maxAv1Height=$maxAv1Height, variantsCount=${variants.size}")
-        
         // Build filtered and sorted list (high to low resolution)
         val filteredVariants = mutableListOf<Triple<Int, Int, Map<*, *>>>() // Triple(originalIndex, height, variant)
-        
+
         variants.forEachIndexed { index, variant ->
             val height = getQualityHeight(variant)
-            
-            // Filter out resolutions higher than what AV1 decoder supports
-            if (height > maxAv1Height && height >= 1440) {
-                Log.d("PlayerVM", "Filtering out ${height}p - AV1 max supported: ${maxAv1Height}p")
+
+            // Filter out anything above 1080p
+            if (height > 1080) {
+                Log.d("PlayerVM", "Filtering out ${height}p - max allowed: 1080p")
                 return@forEachIndexed
             }
-            
+
             filteredVariants.add(Triple(index, height, variant))
         }
         
@@ -734,46 +773,25 @@ class PlayerViewModel(
         return height ?: 0
     }
     
-    /**
-     * Check if AV1 decoder supports a specific resolution.
-     * Returns the maximum supported height for AV1 content.
-     */
-    private fun getMaxSupportedAv1Height(): Int {
-        try {
-            val codecList = android.media.MediaCodecList(android.media.MediaCodecList.ALL_CODECS)
-            for (info in codecList.codecInfos) {
-                if (info.isEncoder) continue
-                if (!info.supportedTypes.any { it.equals(android.media.MediaFormat.MIMETYPE_VIDEO_AV1, ignoreCase = true) }) continue
-                
-                val caps = info.getCapabilitiesForType(android.media.MediaFormat.MIMETYPE_VIDEO_AV1)
-                val videoCaps = caps.videoCapabilities ?: continue
-                
-                val maxHeight = videoCaps.supportedHeights.upper
-                Log.d("PlayerVM", "AV1 decoder ${info.name}: maxHeight=$maxHeight")
-                
-                // Check if 4K (2160p) is supported
-                if (videoCaps.isSizeSupported(3840, 2160)) {
-                    return 2160
-                }
-                // Check if 2K (1440p) is supported
-                if (videoCaps.isSizeSupported(2560, 1440)) {
-                    return 1440
-                }
-                // Check if 1080p is supported
-                if (videoCaps.isSizeSupported(1920, 1080)) {
-                    return 1080
-                }
-                return maxHeight
-            }
-        } catch (e: Exception) {
-            Log.e("PlayerVM", "Error checking AV1 support", e)
-        }
-        return 0 // No AV1 support
-    }
-
     private var isAutoQuality = true
-    
+
     fun isAllohaAutoQuality(): Boolean = isAutoQuality
+
+    fun getBestAllohaUrl(): String? {
+        val audioVariant = allohaAudioVariants.getOrNull(selectedAllohaAudioIndex) ?: return null
+        val qualityVariants = ((audioVariant["qualityVariants"] as? List<*>)?.mapNotNull { it as? Map<*, *> }
+            ?.takeIf { it.isNotEmpty() }
+            ?: allohaQualityVariants.mapNotNull { it as? Map<*, *> })
+        if (qualityVariants.isEmpty()) return audioVariant["url"] as? String
+        return if (isAutoQuality || selectedAllohaQualityIndex < 0) {
+            selectBestQualityUrl(qualityVariants)
+        } else {
+            val variant = qualityVariants.getOrNull(selectedAllohaQualityIndex)
+            val height = variant?.let { getQualityHeight(it) } ?: 0
+            if (height > 1080) selectBestQualityUrl(qualityVariants)
+            else variant?.get("url") as? String ?: selectBestQualityUrl(qualityVariants)
+        }
+    }
     
     fun selectAllohaAutoQuality() {
         isAutoQuality = true
@@ -798,14 +816,29 @@ class PlayerViewModel(
     
     private fun reloadAllohaVariant() {
         val audioVariant = allohaAudioVariants.getOrNull(selectedAllohaAudioIndex) ?: return
-        val qualityVariants = (audioVariant["qualityVariants"] as? List<*>)?.mapNotNull { it as? Map<*, *> } ?: return
-        
+        val qualityVariants = ((audioVariant["qualityVariants"] as? List<*>)?.mapNotNull { it as? Map<*, *> }
+            ?.takeIf { it.isNotEmpty() }
+            ?: allohaQualityVariants.mapNotNull { it as? Map<*, *> })
+            .takeIf { it.isNotEmpty() } ?: run {
+            // No quality variants — just reload with the audio variant's direct URL
+            val directUrl = audioVariant["url"] as? String ?: return
+            val currentPosition = player.currentPosition
+            player.stop()
+            player.clearMediaItems()
+            player.setMediaItem(androidx.media3.common.MediaItem.Builder().setUri(directUrl).build())
+            player.prepare()
+            player.seekTo(currentPosition)
+            player.play()
+            return
+        }
+
         val url = if (isAutoQuality || selectedAllohaQualityIndex < 0) {
-            // Auto quality - select based on network speed
             selectBestQualityUrl(qualityVariants)
         } else {
-            // Manual quality selection
-            qualityVariants.getOrNull(selectedAllohaQualityIndex)?.get("url") as? String
+            val variant = qualityVariants.getOrNull(selectedAllohaQualityIndex)
+            val height = variant?.let { getQualityHeight(it) } ?: 0
+            if (height > 1080) selectBestQualityUrl(qualityVariants)
+            else variant?.get("url") as? String
         } ?: return
         
         // Reload player with new URL
@@ -832,14 +865,14 @@ class PlayerViewModel(
             val isWifi = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
             val downMbps = caps?.linkDownstreamBandwidthKbps?.div(1000) ?: 0
             
-            // Auto quality ALWAYS caps at 1080p - 2K/4K only manual selection
             val maxRes = when {
-                isWifi || downMbps >= 10 -> 1080
+                downMbps >= 10 -> 1080
                 downMbps >= 5 -> 720
-                else -> 480
+                downMbps >= 2 -> 480
+                else -> 360
             }
-            
-            Log.d("PlayerVM", "Auto quality: isWifi=$isWifi, downMbps=$downMbps, maxRes=${maxRes}p (2K/4K manual only)")
+
+            Log.d("PlayerVM", "Auto quality: isWifi=$isWifi, downMbps=$downMbps, maxRes=${maxRes}p")
             
             // Build quality map - include all qualities up to 1080p for auto selection
             val qualityMap = mutableMapOf<Int, String>()
@@ -852,7 +885,7 @@ class PlayerViewModel(
             }
             
             // Select best quality within maxRes limit
-            val orderedKeys = listOf(1080, 720, 480, 360).filter { it <= maxRes }
+            val orderedKeys = listOf(1080, 720, 480, 360, 240).filter { it <= maxRes }
             val bestKey = orderedKeys.firstOrNull { qualityMap.containsKey(it) }
                 ?: qualityMap.keys.filter { it <= maxRes }.maxOrNull()
                 ?: qualityMap.keys.minOrNull()
@@ -862,6 +895,14 @@ class PlayerViewModel(
             Log.e("PlayerVM", "Error selecting quality", e)
             return variants.firstOrNull()?.get("url") as? String
         }
+    }
+
+    /**
+     * Returns saved progress position for a given episode, 0 if none or already watched.
+     */
+    fun readSavedEpisodePositionMs(kpId: Int, season: Int, episode: Int): Long {
+        val key = "kp_${kpId}_s${season}_e${episode}"
+        return progressStore.readStartPosition(key, startFromBeginning = false)
     }
 
     // Episode navigation
@@ -889,28 +930,23 @@ class PlayerViewModel(
     /**
      * Reload the player with a new URL (used for Alloha episode switching)
      */
-    fun reloadWithUrl(url: String, headers: Map<String, String> = emptyMap()) {
+    fun reloadWithUrl(url: String, headers: Map<String, String> = emptyMap(), startPositionMs: Long = 0L) {
         player.stop()
         player.clearMediaItems()
-        
+
         val mediaItem = MediaItem.Builder()
             .setUri(url)
-            .apply {
-                if (headers.isNotEmpty()) {
-                    // Headers are handled by the data source factory
-                }
-            }
             .build()
-        
+
         player.setMediaItem(mediaItem)
         player.prepare()
-        player.seekTo(0)
+        if (startPositionMs > 0L) {
+            player.seekTo(startPositionMs)
+        }
         player.play()
-        
+
         // Reset audio override for new episode
         appliedFirstAudioOverride = false
-        selectedAllohaQualityIndex = -1
-        isAutoQuality = true
     }
 }
 

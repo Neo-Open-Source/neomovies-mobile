@@ -142,7 +142,7 @@
         android:orientation="horizontal">
 
         <ImageButton
-            android:id="@+id/exo_prev"
+            android:id="@+id/btn_prev_episode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="32dp"
@@ -167,9 +167,9 @@
             android:layout_height="wrap_content"
             android:background="@drawable/circle_background"
             android:backgroundTint="@android:color/white"
-            android:padding="16dp"
+            android:padding="14dp"
             android:src="@drawable/ic_play"
-            android:tint="@android:color/black"
+            android:tint="@null"
             android:contentDescription="@string/player_controls_play_pause" />
 
         <ImageButton
@@ -183,7 +183,7 @@
             android:contentDescription="@string/player_controls_fast_forward" />
 
         <ImageButton
-            android:id="@+id/exo_next"
+            android:id="@+id/btn_next_episode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="32dp"

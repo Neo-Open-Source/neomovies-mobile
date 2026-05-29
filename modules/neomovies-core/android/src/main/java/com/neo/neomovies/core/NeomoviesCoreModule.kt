@@ -203,6 +203,18 @@ class NeomoviesCoreModule : Module() {
       android.util.Log.d("NeomoviesCore", "exoPlayerSetAllohaEpisodes: ${iframeUrls.size} episodes, startIndex=$startIndex, title=$title")
       AllohaEpisodeHolder.setEpisodes(iframeUrls, names, startIndex, headers, title ?: "")
     }
+
+    AsyncFunction("exoPlayerLaunchAlloha") { iframeUrl: String, title: String?, kpId: Int? ->
+      val activity = appContext.currentActivity ?: throw Exception("No current activity")
+      val intent = android.content.Intent(activity, PlayerActivity::class.java).apply {
+        putExtra(PlayerActivity.EXTRA_ALLOHA_IFRAME_URL, iframeUrl)
+        putExtra(PlayerActivity.EXTRA_TITLE, title)
+        putExtra(PlayerActivity.EXTRA_USE_EXO, true)
+        putExtra(PlayerActivity.EXTRA_USE_COLLAPS_HEADERS, true)
+        if (kpId != null) putExtra(PlayerActivity.EXTRA_KINOPOISK_ID, kpId)
+      }
+      activity.startActivity(intent)
+    }
     
     Function("exoPlayerGetAllohaEpisodeState") {
       mapOf(
@@ -339,7 +351,44 @@ class NeomoviesCoreModule : Module() {
       }
       val root = JSONObject(body)
       val data = root.optJSONObject("data") ?: return@AsyncFunction emptyMap<String, Any>()
-      val seasonsObj = data.optJSONObject("seasons") ?: return@AsyncFunction emptyMap<String, Any>()
+
+      val category = data.optInt("category", 0)
+      val transIframeObj = data.optJSONObject("translation_iframe")
+      val seasonsObj = data.optJSONObject("seasons")
+
+      // --- Movie: category == 1 or has translation_iframe, and no seasons ---
+      if ((category == 1 || transIframeObj != null) && seasonsObj == null) {
+        val variants = mutableListOf<Map<String, Any>>()
+        if (transIframeObj != null) {
+          transIframeObj.keys().asSequence().sorted().forEach { key ->
+            val trans = transIframeObj.optJSONObject(key) ?: return@forEach
+            val iframe = trans.optString("iframe", "").takeIf { it.isNotBlank() } ?: return@forEach
+            val name = trans.optString("name", "").takeIf { it.isNotBlank() } ?: "Озвучка ${variants.size + 1}"
+            variants.add(mapOf("id" to "$key-$iframe", "title" to name, "url" to iframe))
+          }
+        }
+        if (variants.isEmpty()) {
+          val singleIframe = data.optString("iframe", "").takeIf { it.isNotBlank() }
+            ?: return@AsyncFunction emptyMap<String, Any>()
+          variants.add(mapOf("id" to "0-$singleIframe", "title" to "Основной", "url" to singleIframe))
+        }
+        val primaryIframe = variants.first()["url"] as? String ?: ""
+        return@AsyncFunction mapOf(
+          "kind" to "movie",
+          "source" to "alloha",
+          "playlist" to mapOf(
+            "primaryUrl" to primaryIframe,
+            "hlsUrl" to null,
+            "dashUrl" to null,
+            "voiceovers" to emptyList<String>(),
+            "subtitles" to emptyList<Map<String, String>>()
+          ),
+          "allohaVariants" to variants
+        )
+      }
+
+      // --- Series: parse seasons/episodes ---
+      if (seasonsObj == null) return@AsyncFunction emptyMap<String, Any>()
 
       val seasons = mutableListOf<Map<String, Any>>()
       seasonsObj.keys().forEach { seasonKey ->
@@ -500,14 +549,22 @@ class NeomoviesCoreModule : Module() {
       val episodeDuration = episodeKey?.let { watchedPrefs.getLong("${it}_duration", 0L) } ?: 0L
       val episodeUpdatedAt = episodeKey?.let { watchedPrefs.getLong("${it}_updated_at", 0L) } ?: 0L
 
+      // For movies (no episodeKey), fall back to generic kp progress
+      val resolvedPosition = if (episodeKey == null) lastPosition else episodePosition
+      val resolvedDuration = if (episodeKey == null) lastDuration else episodeDuration
+      val resolvedWatched = if (episodeKey == null) {
+        lastDuration > 0 && lastPosition >= maxOf((lastDuration * 0.85f).toLong(), lastDuration - 180_000L)
+      } else episodeWatched
+      val resolvedUpdatedAt = if (episodeKey == null) lastUpdatedAt else episodeUpdatedAt
+
       val payload = buildWatchProgressPayload(
         kpId = kpId,
         season = resolvedSeason,
         episode = resolvedEpisode,
-        positionMs = episodePosition,
-        durationMs = episodeDuration,
-        watched = episodeWatched,
-        updatedAtMs = episodeUpdatedAt,
+        positionMs = resolvedPosition,
+        durationMs = resolvedDuration,
+        watched = resolvedWatched,
+        updatedAtMs = resolvedUpdatedAt,
       )
 
       payload + mapOf(
@@ -523,32 +580,38 @@ class NeomoviesCoreModule : Module() {
       val context = appContext.reactContext ?: throw Exception("No react context")
       val watchedPrefs = context.getSharedPreferences("collaps_watched", android.content.Context.MODE_PRIVATE)
       val entries = watchedPrefs.all
-      val pattern = Regex("^kp_(\\d+)_s(\\d+)_e(\\d+)$")
+      val episodePattern = Regex("^kp_(\\d+)_s(\\d+)_e(\\d+)$")
+      val moviePattern = Regex("^kp_(\\d+)_last_position$")
 
-      entries.keys
-        .mapNotNull { key ->
-          val match = pattern.matchEntire(key) ?: return@mapNotNull null
+      val episodeRecords = entries.keys.mapNotNull { key ->
+          val match = episodePattern.matchEntire(key) ?: return@mapNotNull null
           val itemKpId = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
           if (kpId != null && itemKpId != kpId) return@mapNotNull null
-
           val season = match.groupValues[2].toIntOrNull() ?: return@mapNotNull null
           val episode = match.groupValues[3].toIntOrNull() ?: return@mapNotNull null
           val positionMs = watchedPrefs.getLong(key, 0L)
           val durationMs = watchedPrefs.getLong("${key}_duration", 0L)
           val watched = watchedPrefs.getBoolean("${key}_watched", false)
           val updatedAtMs = watchedPrefs.getLong("${key}_updated_at", 0L)
-
-          buildWatchProgressPayload(
-            kpId = itemKpId,
-            season = season,
-            episode = episode,
-            positionMs = positionMs,
-            durationMs = durationMs,
-            watched = watched,
-            updatedAtMs = updatedAtMs,
-          )
+          buildWatchProgressPayload(kpId = itemKpId, season = season, episode = episode,
+            positionMs = positionMs, durationMs = durationMs, watched = watched, updatedAtMs = updatedAtMs)
         }
-        .sortedByDescending { (it["updatedAtMs"] as? Long) ?: 0L }
+
+      val movieRecords = entries.keys.mapNotNull { key ->
+          val match = moviePattern.matchEntire(key) ?: return@mapNotNull null
+          val itemKpId = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+          if (kpId != null && itemKpId != kpId) return@mapNotNull null
+          // Skip if this kpId has episode records (it's a series, not a movie)
+          if (episodeRecords.any { (it["kpId"] as? Int) == itemKpId }) return@mapNotNull null
+          val positionMs = watchedPrefs.getLong(key, 0L)
+          val durationMs = watchedPrefs.getLong("kp_${itemKpId}_last_duration", 0L)
+          val updatedAtMs = watchedPrefs.getLong("kp_${itemKpId}_last_updated_at", 0L)
+          val watched = durationMs > 0 && positionMs >= maxOf((durationMs * 0.85f).toLong(), durationMs - 180_000L)
+          buildWatchProgressPayload(kpId = itemKpId, season = null, episode = null,
+            positionMs = positionMs, durationMs = durationMs, watched = watched, updatedAtMs = updatedAtMs)
+        }
+
+      (episodeRecords + movieRecords).sortedByDescending { (it["updatedAtMs"] as? Long) ?: 0L }
     }
   }
 }

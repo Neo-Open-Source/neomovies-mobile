@@ -87,6 +87,9 @@ public struct CollapsAVPlaylistItem {
     public let subtitles: [CollapsSubtitle]
     public let audioVariants: [CollapsAVAudioVariant]
     public let qualityVariants: [CollapsAVQualityOption]
+    /// Dub/voiceover label for items that are one dub in a multi-dub playlist.
+    /// When set, shown in the audio chip instead of `title`.
+    public let voiceoverLabel: String?
 
     public init(
         mediaId: String,
@@ -98,7 +101,8 @@ public struct CollapsAVPlaylistItem {
         voiceovers: [String] = [],
         subtitles: [CollapsSubtitle] = [],
         audioVariants: [CollapsAVAudioVariant] = [],
-        qualityVariants: [CollapsAVQualityOption] = []
+        qualityVariants: [CollapsAVQualityOption] = [],
+        voiceoverLabel: String? = nil
     ) {
         self.mediaId = mediaId
         self.title = title
@@ -110,5 +114,6 @@ public struct CollapsAVPlaylistItem {
         self.subtitles = subtitles
         self.audioVariants = audioVariants
         self.qualityVariants = qualityVariants
+        self.voiceoverLabel = voiceoverLabel
     }
 }

@@ -128,15 +128,10 @@ export default function CategoryScreen() {
             void loadNextPage();
           }
         }}
-        renderItem={({ item, index }) => {
-          const isLastColumn = columns > 1 && (index + 1) % columns === 0;
-          const spacingStyle = [
-            { marginBottom: CARD_GAP },
-            !isLastColumn ? { marginRight: CARD_GAP } : null,
-          ];
+        renderItem={({ item }) => {
           if (item.kind === 'skeleton') {
             return (
-              <View style={[categoryScreenStyles.gridItem, dynamicStyles.gridItem, spacingStyle]}>
+              <View style={[categoryScreenStyles.gridItem, dynamicStyles.gridItem]}>
                 <ThemedView
                   type="backgroundSelected"
                   style={categoryScreenStyles.skeleton}
@@ -145,7 +140,7 @@ export default function CategoryScreen() {
             );
           }
           return (
-            <View style={[categoryScreenStyles.gridItem, dynamicStyles.gridItem, spacingStyle]}>
+            <View style={[categoryScreenStyles.gridItem, dynamicStyles.gridItem]}>
               <Pressable
                 onPress={() =>
                   router.push({

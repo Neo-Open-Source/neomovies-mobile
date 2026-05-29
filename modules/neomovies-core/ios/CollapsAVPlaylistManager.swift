@@ -67,9 +67,9 @@ final class CollapsAVPlaylistManager {
         }
     }
     
-    /// Checks if the load token is still valid
+    /// Checks if the load token is still valid (no newer episode load was started)
     func isLoadTokenValid(_ token: UUID) -> Bool {
-        episodeLoadToken == token && currentIndex == token.hashValue % playlist.count
+        episodeLoadToken == token
     }
     
     /// Moves to the next episode (async version)
@@ -97,6 +97,12 @@ final class CollapsAVPlaylistManager {
         currentIndex > 0
     }
     
+    /// Replaces a playlist item in-place (used to back-fill resolved audio/quality variants)
+    func updateItem(at index: Int, with item: CollapsAVPlaylistItem) {
+        guard index >= 0, index < playlist.count else { return }
+        playlist[index] = item
+    }
+
     /// Resets quality recovery cursor for a media ID
     func resetQualityRecoveryCursor(for mediaId: String) {
         qualityRecoveryCursorByMediaId[mediaId] = 0

@@ -113,8 +113,14 @@ internal class AllohaRuntimeResolver(private val context: Context) {
 
                 val payload = obj.optString("payload")
                 if (payload.isBlank()) return@runCatching
+                android.util.Log.d("AllohaResolver", "Bridge.post payload[${payload.length}]: ${payload.take(200)}")
                 pendingPayloads.addLast(payload)
                 while (pendingPayloads.size > 12) pendingPayloads.removeFirst()
+
+                if (payload.trimStart().startsWith("{") && payload.contains("\"hlsSource\"")) {
+                    resolveIfReady(payload)
+                    return@runCatching
+                }
 
                 if (isMasterPlaylistPayload(payload)) {
                     bestMasterPayload = payload
@@ -130,7 +136,7 @@ internal class AllohaRuntimeResolver(private val context: Context) {
     private fun resolveIfReady(payload: String) {
         if (finished) return
         when {
-            payload.contains("hlsSource") -> {
+            payload.trimStart().startsWith("{") && payload.contains("\"hlsSource\"") -> {
                 bestHlsSourcePayload = payload
                 scheduleFallbackResolve(payload, if (hasAllohaPlaybackHeaders()) 3000L else 3800L)
             }
@@ -152,10 +158,12 @@ internal class AllohaRuntimeResolver(private val context: Context) {
         val base = baseUrl ?: return
         val payloads = listOfNotNull(bestHlsSourcePayload, bestMasterPayload, bestDirectPayload, fallback.ifBlank { null })
         val seen = mutableSetOf<String>()
-        
+        android.util.Log.d("AllohaResolver", "resolveBestAvailablePayload: payloads=${payloads.size} hlsSource=${bestHlsSourcePayload?.take(120)} master=${bestMasterPayload?.take(120)} direct=${bestDirectPayload?.take(120)}")
+
         for (payload in payloads) {
             if (!seen.add(payload)) continue
             val parsed = AllohaRuntimeParser.parsePayload(payload, base, headers) ?: continue
+            android.util.Log.d("AllohaResolver", "parsed: audioVariants=${(parsed["audioVariants"] as? List<*>)?.size} qualityVariants=${(parsed["qualityVariants"] as? List<*>)?.size} videoURL=${parsed["videoURL"]?.toString()?.take(80)}")
             
             val audioVariants = (parsed["audioVariants"] as? List<*>)?.mapNotNull { raw ->
                 val item = raw as? Map<*, *> ?: return@mapNotNull null
@@ -212,6 +220,7 @@ internal class AllohaRuntimeResolver(private val context: Context) {
 
     private fun isPlayablePayload(payload: String): Boolean {
         val lower = payload.lowercase(Locale.ROOT)
+        if (lower.contains("blank.mp4") || lower.contains("cdn.plyr.io")) return false
         return lower.contains(".m3u8") || lower.contains(".mp4") || lower.contains(".mpd")
     }
 

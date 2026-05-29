@@ -1,0 +1,227 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git tag to build'
+        required: true
+        type: string
+      prerelease:
+        description: 'Prerelease build'
+        required: true
+        default: true
+        type: boolean
+      upload_to_release:
+        description: 'Upload APK to releases'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      FORGEJO_API_URL: https://git.disroot.org/api/v1
+      FORGEJO_OWNER: Neo
+      FORGEJO_REPO: neomovies-mobile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Detect version and channel
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG_NAME="${{ github.event.release.tag_name }}"
+            IS_PRERELEASE="${{ github.event.release.prerelease }}"
+            UPLOAD_TO_RELEASE=true
+          else
+            TAG_NAME="${{ inputs.tag }}"
+            IS_PRERELEASE="${{ inputs.prerelease }}"
+            UPLOAD_TO_RELEASE="${{ inputs.upload_to_release }}"
+          fi
+
+          VERSION="${TAG_NAME#v}"
+          RELEASE_TYPE="release"
+          [[ "$IS_PRERELEASE" == "true" ]] && RELEASE_TYPE="prerelease"
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "release_type=$RELEASE_TYPE" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "upload_to_release=$UPLOAD_TO_RELEASE" >> $GITHUB_OUTPUT
+
+      - name: Patch app.json releaseType
+        shell: bash
+        run: |
+          node -e "
+            const fs = require('fs');
+            const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            cfg.expo.extra = cfg.expo.extra || {};
+            cfg.expo.extra.releaseType = '${{ steps.meta.outputs.release_type }}';
+            fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2));
+          "
+
+      - name: Setup release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "RELEASE_KEYSTORE_BASE64 not set, skipping"
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> $GITHUB_ENV
+          echo "RELEASE_KEYSTORE_PASSWORD=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "RELEASE_KEY_ALIAS=${{ secrets.RELEASE_KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "RELEASE_KEY_PASSWORD=${{ secrets.RELEASE_KEY_PASSWORD }}" >> $GITHUB_ENV
+
+      - name: Fix gradlew permissions
+        run: chmod +x android/gradlew
+
+      - name: Build APK
+        env:
+          CI: 'true'
+          APP_VERSION: ${{ steps.meta.outputs.version }}
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --build-cache --no-daemon
+
+      - name: Rename APKs
+        id: apk
+        shell: bash
+        run: |
+          set -e
+          VERSION="${{ steps.meta.outputs.version }}"
+          RELEASE_TYPE="${{ steps.meta.outputs.release_type }}"
+          IN_DIR="android/app/build/outputs/apk/release"
+          OUT_DIR="$IN_DIR/renamed"
+          mkdir -p "$OUT_DIR"
+
+          for f in "$IN_DIR"/*.apk; do
+            b="$(basename "$f")"
+            if [[ "$b" == *"arm64-v8a"* ]]; then abi="arm64-v8a"
+            elif [[ "$b" == *"armeabi-v7a"* ]]; then abi="armeabi-v7a"
+            elif [[ "$b" == *"x86_64"* ]]; then abi="x86_64"
+            else abi="universal"; fi
+            cp -f "$f" "$OUT_DIR/neomovies-mobile-$RELEASE_TYPE-$VERSION-$abi.apk"
+          done
+
+          echo "dir=$OUT_DIR" >> $GITHUB_OUTPUT
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apks-${{ steps.meta.outputs.release_type }}
+          path: ${{ steps.apk.outputs.dir }}/*.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: ${{ steps.meta.outputs.upload_to_release == 'true' }}
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: ${{ steps.meta.outputs.tag_name }}
+          prerelease: ${{ steps.meta.outputs.is_prerelease }}
+          files: ${{ steps.apk.outputs.dir }}/*.apk
+
+      - name: Create or find Forgejo Release
+        id: forgejo_release
+        if: ${{ steps.meta.outputs.upload_to_release == 'true' }}
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          TAG_NAME: ${{ steps.meta.outputs.tag_name }}
+          IS_PRERELEASE: ${{ steps.meta.outputs.is_prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_URL="$FORGEJO_API_URL/repos/$FORGEJO_OWNER/$FORGEJO_REPO/releases/tags/$TAG_NAME"
+
+          HTTP_CODE=$(curl -sS -o /tmp/forgejo-release.json -w "%{http_code}" \
+            -H "Authorization: token $FORGEJO_TOKEN" \
+            "$RELEASE_URL")
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            jq -n \
+              --arg tag "$TAG_NAME" \
+              --arg name "$TAG_NAME" \
+              --argjson prerelease "$IS_PRERELEASE" \
+              '{tag_name: $tag, name: $name, body: "", draft: false, prerelease: $prerelease}' \
+              > /tmp/forgejo-create-release.json
+
+            curl -sS -f \
+              -X POST \
+              -H "Authorization: token $FORGEJO_TOKEN" \
+              -H "Content-Type: application/json" \
+              "$FORGEJO_API_URL/repos/$FORGEJO_OWNER/$FORGEJO_REPO/releases" \
+              --data @/tmp/forgejo-create-release.json \
+              > /tmp/forgejo-release.json
+          fi
+
+          RELEASE_ID=$(jq -r '.id' /tmp/forgejo-release.json)
+          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
+            echo "Failed to get Forgejo release id"
+            cat /tmp/forgejo-release.json
+            exit 1
+          fi
+
+          echo "id=$RELEASE_ID" >> $GITHUB_OUTPUT
+
+      - name: Upload APKs to Forgejo Release
+        if: ${{ steps.meta.outputs.upload_to_release == 'true' }}
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          RELEASE_ID: ${{ steps.forgejo_release.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for f in ${{ steps.apk.outputs.dir }}/*.apk; do
+            name="$(basename "$f")"
+            echo "Uploading $name to Forgejo..."
+            curl -sS -f \
+              -X POST \
+              -H "Authorization: token $FORGEJO_TOKEN" \
+              -F "attachment=@$f" \
+              "$FORGEJO_API_URL/repos/$FORGEJO_OWNER/$FORGEJO_REPO/releases/$RELEASE_ID/assets?name=$name" \
+              > /dev/null
+          done

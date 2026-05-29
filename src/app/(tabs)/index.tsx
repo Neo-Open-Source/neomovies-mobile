@@ -5,9 +5,11 @@ import { Search } from 'lucide-react-native';
 import { FlashList } from '@shopify/flash-list';
 
 import { AppStatusEmptyState } from '@/components/app-status-empty-state';
+import { ContinueWatchingSection } from '@/components/home/continue-watching-section';
 import { MediaCarouselSection } from '@/components/home/media-carousel-section';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useContinueWatching } from '@/hooks/use-continue-watching';
 import { useHomeScreenData } from '@/hooks/use-home-screen-data';
 import { useTheme } from '@/hooks/use-theme';
 import { useI18n } from '@/i18n';
@@ -19,6 +21,7 @@ export default function HomeScreen() {
   const { copy } = useI18n();
   const theme = useTheme();
   const { loading, error, popular, topFilms, topSeries, refresh } = useHomeScreenData();
+  const continueWatching = useContinueWatching();
   const [refreshing, setRefreshing] = useState(false);
   const [offlineEnabled, setOfflineEnabled] = useState(getOfflineModeSnapshot().enabled);
 
@@ -64,6 +67,14 @@ export default function HomeScreen() {
               </ThemedView>
             </Pressable>
 
+            {continueWatching.length > 0 ? (
+              <ContinueWatchingSection
+                items={continueWatching}
+                title={copy.home.continueWatching}
+                nextUpLabel={copy.home.nextUp}
+              />
+            ) : null}
+
             <MediaCarouselSection
               title={copy.home.popular}
               items={popular}
@@ -106,3 +117,4 @@ export default function HomeScreen() {
     </ThemedView>
   );
 }
+

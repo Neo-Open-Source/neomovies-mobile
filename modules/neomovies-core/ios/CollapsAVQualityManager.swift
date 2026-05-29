@@ -97,8 +97,8 @@ final class CollapsAVQualityManager {
                 if label.contains("av1") || label.contains("av01") {
                     return false
                 }
-                // Filter out 1440p and 4K as they typically use AV1 and aren't supported
-                if height >= 1440 {
+                // Filter out anything above 1080p — iOS can't decode AV1/1440p+
+                if height > 1080 {
                     return false
                 }
                 return true
@@ -240,6 +240,11 @@ final class CollapsAVQualityManager {
                 
                 let url = i + 1 < lines.count ? lines[i + 1].trimmingCharacters(in: .whitespaces) : nil
                 
+                // Skip streams above 1080p (1440p+, 4K)
+                if let h = height, h > 1080 {
+                    continue
+                }
+
                 options.append(CollapsAVQualityOption(
                     index: index,
                     bitrate: bandwidth,

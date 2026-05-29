@@ -76,9 +76,12 @@ final class CollapsAVProgressManager {
         return "\(baseMediaId)__src_\(String(hash, radix: 16))"
     }
     
-    /// Generates a progress key for Alloha items
-    func progressKey(kpId: Int?, episode: Int?) -> String {
+    /// Generates a progress key for Alloha items (season-scoped for series)
+    func progressKey(kpId: Int?, episode: Int?, season: Int? = nil) -> String {
         if let kpId, let episode {
+            if let season {
+                return "pos_alloha_\(kpId)_s\(season)_ep\(episode)"
+            }
             return "pos_alloha_\(kpId)_ep\(episode)"
         }
         return ""

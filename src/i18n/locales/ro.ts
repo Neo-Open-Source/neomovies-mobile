@@ -60,6 +60,7 @@ export const ro: Dictionary = {
   },
   home: {
     continueWatching: 'Continuă vizionarea',
+    nextUp: 'Urmează',
     popular: 'Populare',
     topFilms: 'Top Filme',
     topSeries: 'Top Seriale',

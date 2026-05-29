@@ -64,6 +64,7 @@ export type Dictionary = {
   };
   home: {
     continueWatching: string;
+    nextUp: string;
     popular: string;
     topFilms: string;
     topSeries: string;

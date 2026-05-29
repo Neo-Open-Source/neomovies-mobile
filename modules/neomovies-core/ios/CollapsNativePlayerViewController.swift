@@ -1,7 +1,7 @@
 import AVKit
 import UIKit
 
-final class CollapsNativePlayerViewController: AVPlayerViewController, UIGestureRecognizerDelegate {
+final class CollapsNativePlayerViewController: AVPlayerViewController, UIGestureRecognizerDelegate, UIAdaptivePresentationControllerDelegate {
     var onWillDisappearCallback: (() -> Void)?
     var onCloseTapped: (() -> Void)?
     var onPlayPauseTapped: (() -> Void)?
@@ -45,7 +45,12 @@ final class CollapsNativePlayerViewController: AVPlayerViewController, UIGesture
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        presentationController?.delegate = self
         forceToLandscape()
+    }
+
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        onCloseTapped?()
     }
 
     override func viewWillDisappear(_ animated: Bool) {

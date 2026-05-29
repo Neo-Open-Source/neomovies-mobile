@@ -20,4 +20,6 @@
     <string name="player_controls_fast_forward">Перемотка вперед</string>
     <string name="player_controls_skip_back">Назад</string>
     <string name="player_controls_skip_forward">Вперед</string>
+    <string name="alloha_sheet_audio">Озвучка</string>
+    <string name="alloha_sheet_quality">Якість</string>
 </resources>

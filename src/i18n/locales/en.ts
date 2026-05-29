@@ -60,6 +60,7 @@ export const en: Dictionary = {
   },
   home: {
     continueWatching: 'Continue Watching',
+    nextUp: 'Next Up',
     popular: 'Popular',
     topFilms: 'Top Films',
     topSeries: 'Top Series',

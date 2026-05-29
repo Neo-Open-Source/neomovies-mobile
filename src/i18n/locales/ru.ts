@@ -60,6 +60,7 @@ export const ru: Dictionary = {
   },
   home: {
     continueWatching: 'Продолжить просмотр',
+    nextUp: 'Следующее',
     popular: 'Популярное',
     topFilms: 'Топ Фильмов',
     topSeries: 'Топ Сериалов',

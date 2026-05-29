@@ -3,7 +3,7 @@
     "name": "NeoMovies",
     "slug": "neomovies",
     "version": "0.1.0",
-    "orientation": "default",
+    "orientation": "portrait",
     "icon": "./assets/icons/android/ic_launcher-web.png",
     "scheme": "neomovies",
     "userInterfaceStyle": "automatic",
@@ -17,9 +17,7 @@
           "NSAllowsArbitraryLoads": true
         },
         "UISupportedInterfaceOrientations": [
-          "UIInterfaceOrientationPortrait",
-          "UIInterfaceOrientationLandscapeLeft",
-          "UIInterfaceOrientationLandscapeRight"
+          "UIInterfaceOrientationPortrait"
         ]
       }
     },
@@ -51,6 +49,9 @@
       "expo-secure-store",
       "expo-font"
     ],
+    "extra": {
+      "releaseType": "prerelease"
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

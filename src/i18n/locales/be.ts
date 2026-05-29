@@ -60,6 +60,7 @@ export const be: Dictionary = {
   },
   home: {
     continueWatching: 'Працягнуць прагляд',
+    nextUp: 'Наступнае',
     popular: 'Папулярнае',
     topFilms: 'Топ Фільмаў',
     topSeries: 'Топ Серыялаў',

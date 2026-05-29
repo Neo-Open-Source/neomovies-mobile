@@ -26,4 +26,6 @@
     <string name="lumex_select_quality">Select quality</string>
     <string name="lumex_select_voiceover">Select voiceover</string>
     <string name="alloha_parsing_stream">Capturing stream session…</string>
+    <string name="alloha_sheet_audio">Voiceover</string>
+    <string name="alloha_sheet_quality">Quality</string>
 </resources>

@@ -66,7 +66,6 @@ public final class CollapsAVPlayerController: NSObject {
                 guard let self else { return }
                 let state = self.snapshot()
                 if let mediaId = state.mediaId {
-                    let dur = duration > 0 ? duration : nil
                     let scopedMediaId = self.currentScopedPlaybackMediaId()
                     self.progressManager.persistCurrentProgress(mediaId: mediaId, scopedMediaId: scopedMediaId)
                     if let kpId = self.kpId, let currentItem = self.playlistManager.currentItem {
@@ -207,8 +206,14 @@ public final class CollapsAVPlayerController: NSObject {
     @MainActor
     public func dismissNativePlayer() {
         persistCurrentProgress()
-        playerVC?.dismiss(animated: true)
-        onPlayerDismissed?()
+        guard let vc = playerVC, vc.presentingViewController != nil else {
+            // VC already dismissed (e.g. swipe-to-dismiss just completed) — fire immediately
+            onPlayerDismissed?()
+            return
+        }
+        vc.dismiss(animated: true) { [weak self] in
+            self?.onPlayerDismissed?()
+        }
     }
 
     public func play() -> CollapsAVPlayerState {
@@ -238,6 +243,7 @@ public final class CollapsAVPlayerController: NSObject {
     }
 
     public func seek(to seconds: Double) -> CollapsAVPlayerState {
+        assetLoader.cancelPendingSeek()
         player.seek(to: CMTime(seconds: max(0, seconds), preferredTimescale: 600))
         let state = snapshot()
         onStateChanged?(state)
@@ -264,7 +270,35 @@ public final class CollapsAVPlayerController: NSObject {
 
     public func selectQuality(index: Int?) {
         qualityManager.selectQuality(index: index)
-        emitState()
+        let option = index.flatMap { i in qualityManager.currentQualityOptions.first(where: { $0.index == i }) }
+        let resumeAt = player.currentTime().seconds
+        let isPlaying = player.rate > 0
+        if let option, !option.isAuto, let forcedUrl = option.url, !forcedUrl.isEmpty {
+            // Explicit quality URL — reload with it
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.loadCurrentItem(
+                        autoplay: isPlaying,
+                        overrideStartSec: resumeAt.isFinite ? resumeAt : nil,
+                        overrideUrlString: forcedUrl
+                    )
+                } catch {}
+            }
+        } else if option?.isAuto == true {
+            // Auto — reload with master URL so AVPlayer uses real ABR
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.loadCurrentItem(
+                        autoplay: isPlaying,
+                        overrideStartSec: resumeAt.isFinite ? resumeAt : nil
+                    )
+                } catch {}
+            }
+        } else {
+            emitState()
+        }
     }
 
     public func refreshQualityOptions() async -> [[String: Any]] {
@@ -272,13 +306,18 @@ public final class CollapsAVPlayerController: NSObject {
             qualityManager.setQualityOptions([CollapsAVQualityOption(index: 0, bitrate: 0, height: nil, label: "Auto", isAuto: true, url: nil)])
             return qualityManager.listQualityOptions()
         }
-        if allohaManager.isAllohaPlaylistItem(current) {
+        let selectedVariantIndex = audioManager.selectedAudioVariantIndexByMediaId[current.mediaId] ?? 0
+        // Use runtime quality variants when available (Alloha iframe items or items with explicit qualityVariants)
+        let hasExplicitQuality = !current.qualityVariants.isEmpty
+            || (!current.audioVariants.isEmpty
+                && current.audioVariants.indices.contains(selectedVariantIndex)
+                && !current.audioVariants[selectedVariantIndex].qualityVariants.isEmpty)
+        if allohaManager.isAllohaPlaylistItem(current) || hasExplicitQuality {
             let options = makeAllohaQualityOptions(for: current)
             qualityManager.setQualityOptions(options)
             refreshOverlayUI()
             return qualityManager.listQualityOptions()
         }
-        let selectedVariantIndex = audioManager.selectedAudioVariantIndexByMediaId[current.mediaId] ?? 0
         let activeUrlString: String
         if !current.audioVariants.isEmpty,
            current.audioVariants.indices.contains(selectedVariantIndex) {
@@ -291,8 +330,9 @@ public final class CollapsAVPlayerController: NSObject {
 
     public func selectEpisode(index: Int, autoplay: Bool) async throws -> CollapsAVPlayerState {
         let previousIndex = playlistManager.currentIndex
+        let previousItem = playlistManager.currentItem
         try playlistManager.selectEpisode(index: index)
-        persistCurrentProgress()
+        persistProgress(for: previousItem)
         do {
             try await loadCurrentItem(autoplay: autoplay, overrideStartSec: nil)
         } catch {
@@ -305,23 +345,24 @@ public final class CollapsAVPlayerController: NSObject {
     }
 
     public func nextEpisode(autoplay: Bool) async throws -> CollapsAVPlayerState {
-        try playlistManager.nextEpisode()
-        return try await selectEpisode(index: playlistManager.currentIndex, autoplay: autoplay)
+        return try await selectEpisode(index: playlistManager.currentIndex + 1, autoplay: autoplay)
     }
 
     public func previousEpisode(autoplay: Bool) async throws -> CollapsAVPlayerState {
-        try playlistManager.previousEpisode()
-        return try await selectEpisode(index: playlistManager.currentIndex, autoplay: autoplay)
+        return try await selectEpisode(index: playlistManager.currentIndex - 1, autoplay: autoplay)
     }
 
     @MainActor
     public func selectEpisodeAsync(index: Int, autoplay: Bool) async throws -> CollapsAVPlayerState {
+        let previousIndex = playlistManager.currentIndex
+        let previousItem = playlistManager.currentItem
         try playlistManager.selectEpisodeAsync(index: index)
         let loadToken = playlistManager.episodeLoadToken
-        persistCurrentProgress()
-        let previousIndex = playlistManager.currentIndex
+        persistProgress(for: previousItem)
         do {
             try await loadCurrentItemAsync(autoplay: autoplay, overrideStartSec: nil, expectedLoadToken: loadToken)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             playlistManager.revertSelection(to: previousIndex)
             throw error
@@ -336,14 +377,12 @@ public final class CollapsAVPlayerController: NSObject {
 
     @MainActor
     public func nextEpisodeAsync(autoplay: Bool) async throws -> CollapsAVPlayerState {
-        try playlistManager.nextEpisodeAsync()
-        return try await selectEpisodeAsync(index: playlistManager.currentIndex, autoplay: autoplay)
+        return try await selectEpisodeAsync(index: playlistManager.currentIndex + 1, autoplay: autoplay)
     }
 
     @MainActor
     public func previousEpisodeAsync(autoplay: Bool) async throws -> CollapsAVPlayerState {
-        try playlistManager.previousEpisodeAsync()
-        return try await selectEpisodeAsync(index: playlistManager.currentIndex, autoplay: autoplay)
+        return try await selectEpisodeAsync(index: playlistManager.currentIndex - 1, autoplay: autoplay)
     }
 
     public func snapshot() -> CollapsAVPlayerState {
@@ -373,7 +412,27 @@ public final class CollapsAVPlayerController: NSObject {
 
     public func selectAudioTrack(index: Int?) {
         audioManager.updatePlaylist(playlistManager.playlist, currentIndex: playlistManager.currentIndex)
-        audioManager.selectAudioTrack(index: index, emitState: emitState)
+        let result = audioManager.selectAudioTrack(index: index, emitState: emitState)
+        if let episodeIndex = result {
+            // Voiceover playlist: switch to a different playlist item (dub as separate episode)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do { _ = try await self.selectEpisodeAsync(index: episodeIndex, autoplay: true) } catch {}
+            }
+        } else if let current = playlistManager.currentItem, !current.audioVariants.isEmpty {
+            // Audio variant switch: reload current item with new variant URL, resuming at current time
+            let resumeAt = player.currentTime().seconds
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.loadCurrentItem(
+                        autoplay: self.player.rate > 0,
+                        overrideStartSec: resumeAt.isFinite ? resumeAt : nil
+                    )
+                    _ = await self.refreshQualityOptions()
+                } catch {}
+            }
+        }
     }
 
     public func listSubtitleTracks() -> [[String: Any]] {
@@ -384,6 +443,7 @@ public final class CollapsAVPlayerController: NSObject {
         audioManager.selectSubtitleTrack(index: index, emitState: emitState)
     }
 
+    @MainActor
     private func loadCurrentItem(autoplay: Bool, overrideStartSec: Double?, overrideUrlString: String? = nil) async throws {
         try await assetLoader.loadCurrentItem(autoplay: autoplay, overrideStartSec: overrideStartSec, overrideUrlString: overrideUrlString)
     }
@@ -575,7 +635,11 @@ public final class CollapsAVPlayerController: NSObject {
     }
 
     private func persistCurrentProgress() {
-        guard let item = playlistManager.currentItem else { return }
+        persistProgress(for: playlistManager.currentItem)
+    }
+
+    private func persistProgress(for item: CollapsAVPlaylistItem?) {
+        guard let item = item else { return }
         let mediaId = item.mediaId
         guard !mediaId.isEmpty else { return }
 
@@ -583,15 +647,13 @@ public final class CollapsAVPlayerController: NSObject {
         guard seconds.isFinite, seconds >= 0 else { return }
         let rawDur = player.currentItem?.duration.seconds
         let _: Double? = (rawDur?.isFinite == true && (rawDur ?? 0) > 0) ? rawDur : nil
-        
-        // Use unique progress key for Alloha (like Android)
-        let progressKey = progressManager.progressKey(kpId: kpId, episode: item.episode)
+
+        let progressKey = progressManager.progressKey(kpId: kpId, episode: item.episode, season: item.season)
         if !progressKey.isEmpty {
             progressManager.persistCurrentProgress(mediaId: progressKey, scopedMediaId: nil)
         }
-        
-        // Also save by mediaId for non-Alloha or scoped playback
-        progressManager.persistCurrentProgress(mediaId: mediaId, scopedMediaId: currentScopedPlaybackMediaId())
+
+        progressManager.persistCurrentProgress(mediaId: mediaId, scopedMediaId: nil)
     }
 
     private func normalizedRelativeProgress(currentTime: Double, duration: Double) -> Double? {
