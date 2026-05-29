@@ -11,7 +11,7 @@ module.exports = (config) =>
       const patch = `
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
-      config.build_settings['SWIFT_VERSION'] = '5.0'
+      config.build_settings['SWIFT_VERSION'] = '5.9'
     end
   end`;
       if (!contents.includes("SWIFT_VERSION") && contents.includes('post_install do |installer|')) {
