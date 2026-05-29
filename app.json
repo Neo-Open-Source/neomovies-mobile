@@ -47,7 +47,8 @@
         }
       ],
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      "./plugins/withSwift5Pods"
     ],
     "extra": {
       "releaseType": "prerelease",
