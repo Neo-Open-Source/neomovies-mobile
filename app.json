@@ -50,7 +50,11 @@
       "expo-font"
     ],
     "extra": {
-      "releaseType": "prerelease"
+      "releaseType": "prerelease",
+      "router": {},
+      "eas": {
+        "projectId": "93c3388a-0813-45cf-8a6e-d728b781f2f9"
+      }
     },
     "experiments": {
       "typedRoutes": true,
