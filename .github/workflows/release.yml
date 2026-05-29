@@ -187,6 +187,8 @@ jobs:
         working-directory: ios
         run: pod install
 
+      - run: gem install xcpretty --no-document
+
       - name: Build unsigned .app
         env:
           APP_VERSION: ${{ needs.meta.outputs.version }}
@@ -199,7 +201,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | xcpretty --color || (cat "$RUNNER_TEMP/DerivedData/Logs/Build/"*.xcactivitylog 2>/dev/null | gunzip -c 2>/dev/null | grep -E "error:|Build FAILED" | head -50; exit 1)
 
       - name: Package IPA
         id: ipa
