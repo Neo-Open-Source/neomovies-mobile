@@ -68,9 +68,9 @@ export function ScreenTitle() {
             onPress={() => {
               if (router.canGoBack()) {
                 router.back();
-                return;
+              } else {
+                router.replace('/(tabs)');
               }
-              router.replace('/');
             }}
             style={screenTitleStyles.backButtonHit}>
             <ChevronLeft size={24} color={theme.text} strokeWidth={2.4} />

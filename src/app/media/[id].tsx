@@ -34,6 +34,7 @@ export default function MediaDetailsScreen() {
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [favoriteStatusReady, setFavoriteStatusReady] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const favoriteCheckVersionRef = useRef(0);
 
   const backdropUri = useMemo(() => (details ? resolveBackdropUrl(details.id, 'large') : null), [details]);
@@ -99,10 +100,12 @@ export default function MediaDetailsScreen() {
         const tokens = await getStoredTokens();
         if (!tokens?.accessToken) {
           if (!active || checkVersion !== favoriteCheckVersionRef.current) return;
+          setIsAuthenticated(false);
           setIsFavorite(false);
           setFavoriteStatusReady(true);
           return;
         }
+        setIsAuthenticated(true);
         const result = await checkFavorite(details.id, details.type);
         if (!active || checkVersion !== favoriteCheckVersionRef.current) return;
         setIsFavorite(result.isFavorite === true);
@@ -186,7 +189,7 @@ export default function MediaDetailsScreen() {
 
   useEffect(() => {
     setMediaFavoriteHeader({
-      visible: Boolean(details) && favoriteStatusReady,
+      visible: Boolean(details) && favoriteStatusReady && isAuthenticated,
       isFavorite,
       busy: favoriteBusy,
       onPress: () => {
@@ -196,7 +199,7 @@ export default function MediaDetailsScreen() {
     return () => {
       resetMediaFavoriteHeader();
     };
-  }, [details, favoriteBusy, favoriteStatusReady, isFavorite, onToggleFavorite]);
+  }, [details, favoriteBusy, favoriteStatusReady, isAuthenticated, isFavorite, onToggleFavorite]);
 
   const detailsHeaderContent = useMemo(() => {
     if (loading || !details) return null;

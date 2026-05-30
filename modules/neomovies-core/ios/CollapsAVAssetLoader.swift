@@ -216,7 +216,8 @@ final class CollapsAVAssetLoader {
         } else {
             let saved = CollapsPlaybackProgressStore.shared.load(mediaId: progressKey)
             let legacySaved = saved > 0 ? saved : CollapsPlaybackProgressStore.shared.load(mediaId: legacyKey)
-            startAt = legacySaved > 0 ? legacySaved : CollapsPlaybackProgressStore.shared.load(mediaId: itemMeta.mediaId)
+            // For movies (no episode), progressKey is empty — fall back to mediaId directly
+            startAt = legacySaved > 0 ? legacySaved : (progressKey.isEmpty ? CollapsPlaybackProgressStore.shared.load(mediaId: itemMeta.mediaId) : 0)
         }
         guard startAt > 0, let item = player?.currentItem else { return }
         if item.status == .readyToPlay {
