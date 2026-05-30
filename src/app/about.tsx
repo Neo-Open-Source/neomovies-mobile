@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
-import { View } from 'react-native';
+import { useState } from 'react';
+import { Alert, View } from 'react-native';
 import Constants from 'expo-constants';
 import { Image } from 'expo-image';
 import { FileText, RefreshCw, Sparkles } from 'lucide-react-native';
@@ -8,9 +9,11 @@ import { FlashList } from '@shopify/flash-list';
 import { ListRowItem } from '@/components/list-row-item';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { UpdateSheet } from '@/components/update-sheet';
 import { useTheme } from '@/hooks/use-theme';
 import { useI18n } from '@/i18n';
 import { createAboutScreenStyles } from '@/styles/about-screen.styles';
+import { compareVersions, fetchLatestRelease, type GitHubRelease } from '@/lib/github-releases';
 
 export default function AboutScreen() {
   const theme = useTheme();
@@ -26,6 +29,36 @@ export default function AboutScreen() {
   const appIconSource = appIconUri && /^https?:\/\//.test(appIconUri)
     ? { uri: appIconUri }
     : require('@/assets/icons/splash-icon.png');
+
+  const [checking, setChecking] = useState(false);
+  const [updateRelease, setUpdateRelease] = useState<GitHubRelease | null>(null);
+  const [showUpdateSheet, setShowUpdateSheet] = useState(false);
+
+  const handleCheckUpdates = async () => {
+    setChecking(true);
+    try {
+      const repo = ((Constants.expoConfig?.extra as { githubRepo?: string } | undefined)?.githubRepo) || 'Neo-Open-Source/neomovies-mobile';
+      const includePrerelease = branch === 'prerelease';
+      const latest = await fetchLatestRelease(repo, includePrerelease);
+
+      if (!latest) {
+        Alert.alert(copy.about.updateError);
+        return;
+      }
+
+      const comparison = compareVersions(version, latest.tag_name);
+      if (comparison < 0) {
+        setUpdateRelease(latest);
+        setShowUpdateSheet(true);
+      } else {
+        Alert.alert(copy.about.updateNoNew);
+      }
+    } catch {
+      Alert.alert(copy.about.updateError);
+    } finally {
+      setChecking(false);
+    }
+  };
 
   return (
     <ThemedView style={styles.container}>
@@ -44,7 +77,8 @@ export default function AboutScreen() {
           <ListRowItem
             title={copy.about.checkUpdates}
             subtitle={copy.about.checkUpdatesDesc}
-            onPress={() => console.log('Check update')}
+            value={checking ? copy.about.updateChecking : undefined}
+            onPress={handleCheckUpdates}
             showChevron
             leftAccessory={
               <View style={styles.iconWrapper}>
@@ -97,6 +131,13 @@ export default function AboutScreen() {
         </View>
           </View>
         )}
+      />
+
+      <UpdateSheet
+        visible={showUpdateSheet}
+        release={updateRelease}
+        onDismiss={() => setShowUpdateSheet(false)}
+        onDownload={() => setShowUpdateSheet(false)}
       />
     </ThemedView>
   );

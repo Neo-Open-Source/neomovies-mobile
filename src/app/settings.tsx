@@ -28,25 +28,35 @@ async function getCacheSize(): Promise<number> {
   try {
     const cacheDir = FileSystem.cacheDirectory;
     if (!cacheDir) return 0;
-    
-    let totalSize = 0;
-    const items = await FileSystem.readDirectoryAsync(cacheDir);
-    
-    for (const item of items) {
-      try {
-        const info = await FileSystem.getInfoAsync(`${cacheDir}${item}`, { size: true });
-        if (info.exists && 'size' in info) {
-          totalSize += info.size ?? 0;
-        }
-      } catch {
-        // Skip inaccessible items
-      }
-    }
-    
-    return totalSize;
+    return await getDirectorySize(cacheDir);
   } catch {
     return 0;
   }
+}
+
+async function getDirectorySize(dir: string): Promise<number> {
+  let total = 0;
+  let items: string[];
+  try {
+    items = await FileSystem.readDirectoryAsync(dir);
+  } catch {
+    return 0;
+  }
+  for (const item of items) {
+    const path = dir.endsWith('/') ? `${dir}${item}` : `${dir}/${item}`;
+    try {
+      const info = await FileSystem.getInfoAsync(path, { size: true });
+      if (!info.exists) continue;
+      if (info.isDirectory) {
+        total += await getDirectorySize(path);
+      } else if ('size' in info && typeof info.size === 'number') {
+        total += info.size;
+      }
+    } catch {
+      // Skip inaccessible items
+    }
+  }
+  return total;
 }
 
 async function clearAllCache(): Promise<void> {

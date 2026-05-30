@@ -271,8 +271,13 @@ public final class CollapsAVPlayerController: NSObject {
     public func selectQuality(index: Int?) {
         qualityManager.selectQuality(index: index)
         let option = index.flatMap { i in qualityManager.currentQualityOptions.first(where: { $0.index == i }) }
-        let resumeAt = player.currentTime().seconds
+        let liveTime = player.currentTime().seconds
         let isPlaying = player.rate > 0
+        // Fallback: if first load failed, currentTime() is 0 — use saved progress so we don't restart from 0
+        let resumeAt: Double? = {
+            if liveTime.isFinite, liveTime > 0.5 { return liveTime }
+            return savedProgressForCurrentItem()
+        }()
         if let option, !option.isAuto, let forcedUrl = option.url, !forcedUrl.isEmpty {
             // Explicit quality URL — reload with it
             Task { @MainActor [weak self] in
@@ -280,7 +285,7 @@ public final class CollapsAVPlayerController: NSObject {
                 do {
                     try await self.loadCurrentItem(
                         autoplay: isPlaying,
-                        overrideStartSec: resumeAt.isFinite ? resumeAt : nil,
+                        overrideStartSec: resumeAt,
                         overrideUrlString: forcedUrl
                     )
                 } catch {}
@@ -292,13 +297,29 @@ public final class CollapsAVPlayerController: NSObject {
                 do {
                     try await self.loadCurrentItem(
                         autoplay: isPlaying,
-                        overrideStartSec: resumeAt.isFinite ? resumeAt : nil
+                        overrideStartSec: resumeAt
                     )
                 } catch {}
             }
         } else {
             emitState()
         }
+    }
+
+    /// Returns the most recent saved playback position for the current item, or nil.
+    /// Used as a fallback when player.currentTime() is unavailable (e.g. first load failed).
+    private func savedProgressForCurrentItem() -> Double? {
+        guard let item = playlistManager.currentItem else { return nil }
+        let store = CollapsPlaybackProgressStore.shared
+        let progressKey = progressManager.progressKey(kpId: kpId, episode: item.episode, season: item.season)
+        let legacyKey = progressManager.progressKey(kpId: kpId, episode: item.episode)
+        let candidates: [Double] = [
+            store.load(mediaId: progressKey),
+            store.load(mediaId: legacyKey),
+            store.load(mediaId: item.mediaId),
+        ]
+        let best = candidates.first(where: { $0 > 0.5 })
+        return best
     }
 
     public func refreshQualityOptions() async -> [[String: Any]] {
@@ -421,13 +442,17 @@ public final class CollapsAVPlayerController: NSObject {
             }
         } else if let current = playlistManager.currentItem, !current.audioVariants.isEmpty {
             // Audio variant switch: reload current item with new variant URL, resuming at current time
-            let resumeAt = player.currentTime().seconds
+            let liveTime = player.currentTime().seconds
+            let resumeAt: Double? = {
+                if liveTime.isFinite, liveTime > 0.5 { return liveTime }
+                return savedProgressForCurrentItem()
+            }()
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 do {
                     try await self.loadCurrentItem(
                         autoplay: self.player.rate > 0,
-                        overrideStartSec: resumeAt.isFinite ? resumeAt : nil
+                        overrideStartSec: resumeAt
                     )
                     _ = await self.refreshQualityOptions()
                 } catch {}
@@ -511,7 +536,9 @@ public final class CollapsAVPlayerController: NSObject {
         guard let item = playlistManager.currentItem else { return }
         let wasPlaying = player.rate > 0
         let currentState = snapshot()
-        let resumeAt = currentState.currentTimeSec.isFinite ? max(0, currentState.currentTimeSec) : nil
+        let liveResume = currentState.currentTimeSec.isFinite ? max(0, currentState.currentTimeSec) : 0
+        // If first load failed, currentTimeSec is 0 — fall back to saved progress
+        let resumeAt: Double? = liveResume > 0.5 ? liveResume : savedProgressForCurrentItem()
 
         if qualityManager.selectedQualityIndex != 0 {
             qualityManager.resetQualitySelection()

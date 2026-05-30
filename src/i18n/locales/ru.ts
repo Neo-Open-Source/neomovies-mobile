@@ -36,6 +36,12 @@ export const ru: Dictionary = {
     version: 'Версия',
     branch: 'Ветка',
     build: 'Сборка',
+    updateAvailable: 'Доступно обновление',
+    updateDownload: 'Скачать сейчас',
+    updateRemindLater: 'Напомнить позже',
+    updateChecking: 'Проверка обновлений...',
+    updateNoNew: 'Вы используете последнюю версию',
+    updateError: 'Не удалось проверить обновления',
   },
   credits: {
     libraries: 'Используемые библиотеки',

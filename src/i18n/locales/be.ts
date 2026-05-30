@@ -36,6 +36,12 @@ export const be: Dictionary = {
     version: 'Версія',
     branch: 'Галіна',
     build: 'Зборка',
+    updateAvailable: 'Даступна абнаўленне',
+    updateDownload: 'Спампаваць зараз',
+    updateRemindLater: 'Нагадаць пазней',
+    updateChecking: 'Праверка абнаўленняў...',
+    updateNoNew: 'Вы выкарыстоўваеце апошнюю версію',
+    updateError: 'Не атрымалася праверыць абнаўленні',
   },
   credits: {
     libraries: 'Выкарыстаныя бібліятэкі',

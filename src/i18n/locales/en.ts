@@ -36,6 +36,12 @@ export const en: Dictionary = {
     version: 'Version',
     branch: 'Branch',
     build: 'Build',
+    updateAvailable: 'Update Available',
+    updateDownload: 'Download Now',
+    updateRemindLater: 'Remind me later',
+    updateChecking: 'Checking for updates...',
+    updateNoNew: 'You are using the latest version',
+    updateError: 'Failed to check for updates',
   },
   credits: {
     libraries: 'Libraries & Open Source',

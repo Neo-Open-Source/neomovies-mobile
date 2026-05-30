@@ -36,6 +36,12 @@ export const uk: Dictionary = {
     version: 'Версія',
     branch: 'Гілка',
     build: 'Збірка',
+    updateAvailable: 'Доступне оновлення',
+    updateDownload: 'Завантажити зараз',
+    updateRemindLater: 'Нагадати пізніше',
+    updateChecking: 'Перевірка оновлень...',
+    updateNoNew: 'Ви використовуєте останню версію',
+    updateError: 'Не вдалося перевірити оновлення',
   },
   credits: {
     libraries: 'Використані бібліотеки',

@@ -36,6 +36,12 @@ export const ro: Dictionary = {
     version: 'Versiune',
     branch: 'Branch',
     build: 'Build',
+    updateAvailable: 'Actualizare disponibilă',
+    updateDownload: 'Descarcă acum',
+    updateRemindLater: 'Amintește-mi mai târziu',
+    updateChecking: 'Se verifică actualizările...',
+    updateNoNew: 'Folosești ultima versiune',
+    updateError: 'Nu s-au putut verifica actualizările',
   },
   credits: {
     libraries: 'Biblioteci utilizate',

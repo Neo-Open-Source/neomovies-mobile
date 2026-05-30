@@ -34,6 +34,12 @@ export type Dictionary = {
     version: string;
     branch: string;
     build: string;
+    updateAvailable: string;
+    updateDownload: string;
+    updateRemindLater: string;
+    updateChecking: string;
+    updateNoNew: string;
+    updateError: string;
   };
   credits: {
     libraries: string;
