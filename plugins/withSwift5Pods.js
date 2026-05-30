@@ -14,13 +14,14 @@ module.exports = (config) =>
       config.build_settings['SWIFT_VERSION'] = '5.9'
     end
   end`;
-      if (!contents.includes("SWIFT_VERSION") && contents.includes('post_install do |installer|')) {
-        contents = contents.replace(
-          'post_install do |installer|',
-          `post_install do |installer|\n${patch}`
-        );
-        fs.writeFileSync(podfile, contents);
-      }
+      // Remove any existing SWIFT_VERSION patch
+      contents = contents.replace(/\n\s*installer\.pods_project\.targets\.each do \|target\|[\s\S]*?end\n/g, '\n');
+      // Insert AFTER react_native_post_install block, before end of post_install
+      contents = contents.replace(
+        /(\s*react_native_post_install\([\s\S]*?\)\s*\n)(\s*end\s*\nend)/,
+        `$1${patch}\n$2`
+      );
+      fs.writeFileSync(podfile, contents);
       return cfg;
     },
   ]);

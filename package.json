@@ -54,6 +54,7 @@
   "devDependencies": {
     "@tamagui/babel-plugin": "^1.135.4",
     "@types/react": "~19.2.2",
+    "babel-preset-expo": "^56.0.13",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~55.0.1",
     "typescript": "~5.9.2"

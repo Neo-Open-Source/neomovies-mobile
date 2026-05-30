@@ -75,7 +75,11 @@ jobs:
         with:
           node-version: 20
 
-      - run: npm install
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - run: pnpm install --frozen-lockfile
 
       - uses: actions/setup-java@v4
         with:
@@ -162,7 +166,11 @@ jobs:
         with:
           node-version: 20
 
-      - run: npm install
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - run: pnpm install --frozen-lockfile
 
       - name: Patch app.json releaseType
         run: |
@@ -209,7 +217,11 @@ jobs:
         run: |
           VERSION="${{ needs.meta.outputs.version }}"
           RELEASE_TYPE="${{ needs.meta.outputs.release_type }}"
-          APP_PATH=$(find "$RUNNER_TEMP/DerivedData" -name "*.app" -maxdepth 6 | head -1)
+          APP_PATH=$(find "$RUNNER_TEMP/DerivedData" -name "*.app" -not -path "*/iphoneos*simulator*" | grep -v "\.appex" | head -1)
+          echo "Found .app: $APP_PATH"
+          if [ -z "$APP_PATH" ]; then
+            echo "All .app paths found:"; find "$RUNNER_TEMP/DerivedData" -name "*.app" | head -20; exit 1
+          fi
           PAYLOAD_DIR="$RUNNER_TEMP/Payload"
           mkdir -p "$PAYLOAD_DIR/Payload"
           cp -r "$APP_PATH" "$PAYLOAD_DIR/Payload/"
