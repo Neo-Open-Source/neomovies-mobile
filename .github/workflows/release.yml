@@ -6,10 +6,10 @@ on:
       platform:
         description: 'Platform to build'
         required: true
-        default: 'both'
+        default: 'all'
         type: choice
         options:
-          - both
+          - all
           - android
           - ios
       release_type:
@@ -25,33 +25,19 @@ permissions:
   contents: read
 
 jobs:
-  meta:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.meta.outputs.version }}
-      release_type: ${{ steps.meta.outputs.release_type }}
-      build_android: ${{ steps.meta.outputs.build_android }}
-      build_ios: ${{ steps.meta.outputs.build_ios }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Resolve meta
-        id: meta
-        shell: bash
-        run: |
-          VERSION=$(node -p "require('./package.json').version")-$(git rev-parse --short HEAD)
-          RELEASE_TYPE="${{ inputs.release_type }}"
-          BUILD_ANDROID=$([[ "${{ inputs.platform }}" == "android" || "${{ inputs.platform }}" == "both" ]] && echo "true" || echo "false")
-          BUILD_IOS=$([[ "${{ inputs.platform }}" == "ios" || "${{ inputs.platform }}" == "both" ]] && echo "true" || echo "false")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "release_type=$RELEASE_TYPE" >> $GITHUB_OUTPUT
-          echo "build_android=$BUILD_ANDROID" >> $GITHUB_OUTPUT
-          echo "build_ios=$BUILD_IOS" >> $GITHUB_OUTPUT
-
-  build-android:
-    runs-on: ubuntu-latest
-    needs: meta
-    if: ${{ needs.meta.outputs.build_android == 'true' }}
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            runs-on: ubuntu-latest
+          - platform: ios
+            runs-on: macos-latest
+    runs-on: ${{ matrix.runs-on }}
+    if: |
+      inputs.platform == 'all' ||
+      inputs.platform == matrix.platform
     steps:
       - uses: actions/checkout@v4
 
@@ -65,19 +51,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
-
       - name: Patch app.json releaseType
         run: |
           node -e "
             const fs = require('fs');
             const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
             cfg.expo.extra = cfg.expo.extra || {};
-            cfg.expo.extra.releaseType = '${{ needs.meta.outputs.release_type }}';
+            cfg.expo.extra.releaseType = '${{ inputs.release_type }}';
             fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2));
           "
 
@@ -87,158 +67,29 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Build APK
-        env:
-          APP_VERSION: ${{ needs.meta.outputs.version }}
-        run: eas build --platform android --profile preview --local --non-interactive --output ${{ github.workspace }}/app-release.apk
+      - name: Build ${{ matrix.platform }}
+        run: |
+          eas build \
+            --platform ${{ matrix.platform }} \
+            --profile preview \
+            --local \
+            --non-interactive \
+            --output ./build.${{ matrix.platform == 'android' && 'apk' || 'tar.gz' }}
 
-      - name: Rename APK
-        id: apk
+      - name: Rename artifact
+        id: artifact
         shell: bash
         run: |
-          VERSION="${{ needs.meta.outputs.version }}"
-          RELEASE_TYPE="${{ needs.meta.outputs.release_type }}"
-          NAME="neomovies-android-$RELEASE_TYPE-$VERSION.apk"
-          mv "${{ github.workspace }}/app-release.apk" "${{ github.workspace }}/$NAME"
-          echo "path=${{ github.workspace }}/$NAME" >> $GITHUB_OUTPUT
-          echo "name=$NAME" >> $GITHUB_OUTPUT
+          VERSION=$(node -p "require('./package.json').version")
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          EXT=${{ matrix.platform == 'android' && 'apk' || 'tar.gz' }}
+          NAME="neomovies-${{ matrix.platform }}-${{ inputs.release_type }}-${VERSION}-${SHORT_SHA}.${EXT}"
+          mv ./build.${EXT} ./${NAME}
+          echo "name=${NAME}" >> $GITHUB_OUTPUT
+          echo "path=./${NAME}" >> $GITHUB_OUTPUT
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.apk.outputs.name }}
-          path: ${{ steps.apk.outputs.path }}
-          retention-days: 7
-
-  build-ios:
-    runs-on: macos-15
-    needs: meta
-    if: ${{ needs.meta.outputs.build_ios == 'true' }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: '16.2'
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Patch app.json releaseType
-        run: |
-          node -e "
-            const fs = require('fs');
-            const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
-            cfg.expo.extra = cfg.expo.extra || {};
-            cfg.expo.extra.releaseType = '${{ needs.meta.outputs.release_type }}';
-            fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2));
-          "
-
-      - name: Expo prebuild iOS
-        run: npx expo prebuild --platform ios --no-install 2>&1 | grep -vE "^\s*(Skipping|Using|Writing|Read|›)" || true
-
-      - uses: actions/cache@v4
-        with:
-          path: ios/Pods
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: ${{ runner.os }}-pods-
-
-      - name: Install CocoaPods
-        working-directory: ios
-        run: pod install --silent
-
-      # xcassets in dev pods reference an old simulator SDK (22C146 = iOS 16)
-      # that isn't installed on the runner — safe to delete for Release builds
-      - name: Remove dev pod simulator assets
-        run: |
-          rm -rf node_modules/expo-dev-menu/ios/Assets.xcassets
-          rm -rf node_modules/expo-dev-launcher/ios/Assets.xcassets
-          echo "✅ Dev pod assets removed"
-
-      - name: Patch Pods.xcodeproj
-        working-directory: ios
-        run: |
-          ruby - <<'RUBY'
-          require 'xcodeproj'
-          project = Xcodeproj::Project.open('Pods/Pods.xcodeproj')
-          project.targets.each do |target|
-            target.build_configurations.each do |config|
-              config.build_settings['SWIFT_VERSION'] = '5.9'
-            end
-          end
-          project.save
-          puts "✅ SWIFT_VERSION=5.9 applied to #{project.targets.count} pod targets"
-          RUBY
-
-      - name: Build unsigned .app
-        env:
-          APP_VERSION: ${{ needs.meta.outputs.version }}
-        run: |
-          set -euo pipefail
-          LOG="$RUNNER_TEMP/xcodebuild.log"
-
-          xcodebuild \
-            -workspace ios/NeoMovies.xcworkspace \
-            -scheme NeoMovies \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-            ONLY_ACTIVE_ARCH=NO \
-            EXCLUDED_ARCHS="x86_64 i386" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build > "$LOG" 2>&1 || true
-
-          grep -E "(error:|BUILD FAILED|BUILD SUCCEEDED)" "$LOG" \
-            | grep -vE "^(note:|.*will be run during every build)" \
-            | head -80 || true
-
-          if grep -q "BUILD FAILED" "$LOG"; then
-            echo ""
-            echo "=== FULL ERRORS ==="
-            grep "error:" "$LOG" | grep -v "^note:" | head -60
-            exit 1
-          fi
-
-          echo "✅ Build succeeded"
-
-      - name: Package IPA
-        id: ipa
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION="${{ needs.meta.outputs.version }}"
-          RELEASE_TYPE="${{ needs.meta.outputs.release_type }}"
-
-          APP_PATH=$(find "$RUNNER_TEMP/DerivedData" -name "*.app" \
-            -not -path "*simulator*" | grep -v "\.appex" | head -1)
-
-          if [ -z "$APP_PATH" ]; then
-            echo "❌ .app not found"
-            find "$RUNNER_TEMP/DerivedData" -maxdepth 5 -type d | head -20 \
-              || echo "(DerivedData missing)"
-            exit 1
-          fi
-
-          echo "✅ Found: $APP_PATH"
-          PAYLOAD_DIR="$RUNNER_TEMP/Payload"
-          mkdir -p "$PAYLOAD_DIR/Payload"
-          cp -r "$APP_PATH" "$PAYLOAD_DIR/Payload/"
-          IPA_NAME="neomovies-ios-$RELEASE_TYPE-$VERSION.ipa"
-          cd "$PAYLOAD_DIR" && zip -qr "$RUNNER_TEMP/$IPA_NAME" Payload
-          echo "path=$RUNNER_TEMP/$IPA_NAME" >> $GITHUB_OUTPUT
-          echo "name=$IPA_NAME" >> $GITHUB_OUTPUT
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.ipa.outputs.name }}
-          path: ${{ steps.ipa.outputs.path }}
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ steps.artifact.outputs.path }}
           retention-days: 7
