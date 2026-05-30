@@ -409,7 +409,14 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             clean build \
-            -quiet 2>&1 | tee xcodebuild.log
+            -quiet 2>&1 | tee xcodebuild.log | grep -E '(error|warning|note):' || true
+
+          # Check if build succeeded
+          if [ ! -d "ios/build/Build/Products/Release-iphoneos" ]; then
+            echo "Build failed, showing full log:"
+            cat xcodebuild.log
+            exit 1
+          fi
 
       - name: Upload Xcode log on failure
         if: failure()
@@ -511,8 +518,13 @@ jobs:
         run: |
           VERSION="${{ needs.meta.outputs.version }}"
 
-          # Clone Forgejo repo
-          git clone https://git.disroot.org/Neo/neomovies-mobile.git forgejo-repo
+          if [ -z "${FORGEJO_TOKEN:-}" ]; then
+            echo "FORGEJO_TOKEN is not set, skipping manifest update"
+            exit 0
+          fi
+
+          # Clone Forgejo repo with token
+          git clone "https://oauth2:${FORGEJO_TOKEN}@git.disroot.org/Neo/neomovies-mobile.git" forgejo-repo
           cd forgejo-repo
 
           # Copy updated manifest
@@ -529,9 +541,6 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "Update AltStore manifest to $VERSION"
-
-            # Push with token authentication
-            git remote set-url origin "https://oauth2:${FORGEJO_TOKEN}@git.disroot.org/Neo/neomovies-mobile.git"
             git push origin main || echo "Failed to push manifest update to Forgejo"
           fi
 
