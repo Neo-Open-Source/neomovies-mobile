@@ -161,12 +161,6 @@ jobs:
           key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
           restore-keys: ${{ runner.os }}-pods-
 
-      - name: Install CocoaPods
-        working-directory: ios
-        run: pod install
-
-      - run: gem install xcpretty --no-document
-
       - name: Build unsigned .app
         env:
           APP_VERSION: ${{ needs.meta.outputs.version }}
@@ -176,11 +170,12 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            SWIFT_VERSION=5.9 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build 2>&1 | xcpretty --color || (cat "$RUNNER_TEMP/DerivedData/Logs/Build/"*.xcactivitylog 2>/dev/null | gunzip -c 2>/dev/null | grep -E "error:|Build FAILED" | head -50; exit 1)
-
+            build 2>&1 | xcpretty --color || (...)
+            
       - name: Package IPA
         id: ipa
         shell: bash
