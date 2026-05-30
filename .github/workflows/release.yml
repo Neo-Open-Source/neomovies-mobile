@@ -153,38 +153,27 @@ jobs:
         working-directory: ios
         run: pod install --silent
 
+      # xcassets in dev pods reference an old simulator SDK (22C146 = iOS 16)
+      # that isn't installed on the runner — safe to delete for Release builds
+      - name: Remove dev pod simulator assets
+        run: |
+          rm -rf node_modules/expo-dev-menu/ios/Assets.xcassets
+          rm -rf node_modules/expo-dev-launcher/ios/Assets.xcassets
+          echo "✅ Dev pod assets removed"
+
       - name: Patch Pods.xcodeproj
         working-directory: ios
         run: |
           ruby - <<'RUBY'
           require 'xcodeproj'
           project = Xcodeproj::Project.open('Pods/Pods.xcodeproj')
-
-          # Dev-only pods that try to compile simulator assets — skip them in Release
-          dev_pods = %w[
-            expo-dev-menu
-            expo-dev-menu-EXDevMenu
-            expo-dev-menu-interface
-            expo-dev-launcher
-            expo-dev-launcher-EXDevLauncher
-            expo-dev-client
-          ]
-
           project.targets.each do |target|
             target.build_configurations.each do |config|
-              # Swift 5.9 for all pods (fixes @MainActor issues)
               config.build_settings['SWIFT_VERSION'] = '5.9'
-
-              # Strip simulator from dev-only pods in Release
-              if dev_pods.include?(target.name) && config.name == 'Release'
-                config.build_settings['SUPPORTED_PLATFORMS'] = 'iphoneos'
-                config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64 x86_64'
-              end
             end
           end
-
           project.save
-          puts "✅ Pods.xcodeproj patched (#{project.targets.count} targets)"
+          puts "✅ SWIFT_VERSION=5.9 applied to #{project.targets.count} pod targets"
           RUBY
 
       - name: Build unsigned .app
@@ -208,8 +197,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build > "$LOG" 2>&1 || true
 
-          # Show only meaningful output
-          grep -E "(error:|BUILD FAILED|BUILD SUCCEEDED|warning: .*error)" "$LOG" \
+          grep -E "(error:|BUILD FAILED|BUILD SUCCEEDED)" "$LOG" \
             | grep -vE "^(note:|.*will be run during every build)" \
             | head -80 || true
 
