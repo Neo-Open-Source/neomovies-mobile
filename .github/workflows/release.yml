@@ -647,6 +647,7 @@ jobs:
         env:
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
           RELEASE_ID: ${{ steps.forgejo_release.outputs.id }}
+          TAG_NAME: ${{ needs.meta.outputs.tag_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -656,14 +657,38 @@ jobs:
             local name
             name="$(basename "$file")"
 
-            echo "Uploading $name to Forgejo release..."
+            echo "Uploading $name to Forgejo..."
 
-            curl -sS -f \
-              -X POST \
+            local size
+            size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file")
+            local size_mb=$((size / 1024 / 1024))
+
+            # Try Forgejo Releases API first (has size limit ~100MB)
+            if [ "$size_mb" -lt 90 ]; then
+              if curl -sS -f \
+                -X POST \
+                -H "Authorization: token $FORGEJO_TOKEN" \
+                -F "attachment=@$file" \
+                "$FORGEJO_API_URL/repos/$FORGEJO_OWNER/$FORGEJO_REPO/releases/$RELEASE_ID/assets?name=$name" \
+                > /dev/null 2>&1; then
+                echo "✅ Uploaded $name to Forgejo Releases"
+                return 0
+              fi
+            fi
+
+            # For large files, use Forgejo Generic Packages
+            echo "Uploading $name to Forgejo Packages (${size_mb}MB)..."
+            if curl -sS -f \
+              -X PUT \
               -H "Authorization: token $FORGEJO_TOKEN" \
-              -F "attachment=@$file" \
-              "$FORGEJO_API_URL/repos/$FORGEJO_OWNER/$FORGEJO_REPO/releases/$RELEASE_ID/assets?name=$name" \
-              > /dev/null
+              --upload-file "$file" \
+              "https://git.disroot.org/api/packages/$FORGEJO_OWNER/generic/neomovies-mobile/$TAG_NAME/$name" \
+              > /dev/null 2>&1; then
+              echo "✅ Uploaded $name to Forgejo Packages"
+              return 0
+            fi
+
+            echo "⚠️  Failed to upload $name (available on GitHub Releases)"
           }
 
           shopt -s nullglob
@@ -675,3 +700,9 @@ jobs:
           for f in release-files/*.ipa; do
             upload_asset "$f"
           done
+
+          echo ""
+          echo "Files uploaded to:"
+          echo "  - Forgejo Releases: https://git.disroot.org/$FORGEJO_OWNER/$FORGEJO_REPO/releases/tag/$TAG_NAME"
+          echo "  - Forgejo Packages: https://git.disroot.org/$FORGEJO_OWNER/-/packages/generic/neomovies-mobile/$TAG_NAME"
+          echo "  - GitHub Releases: https://github.com/${{ github.repository }}/releases/tag/$TAG_NAME"
