@@ -94,4 +94,4 @@ AltStore apps expire after 7 days due to Apple's free developer certificate limi
 
 ---
 
-**Made with ❤️ by Neo Team**
+**Made with ❤️  by Neo Open Source**
