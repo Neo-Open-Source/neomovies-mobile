@@ -215,7 +215,8 @@ final class CollapsAVAssetLoader {
             startAt = override
         } else {
             let saved = CollapsPlaybackProgressStore.shared.load(mediaId: progressKey)
-            startAt = saved > 0 ? saved : CollapsPlaybackProgressStore.shared.load(mediaId: legacyKey)
+            let legacySaved = saved > 0 ? saved : CollapsPlaybackProgressStore.shared.load(mediaId: legacyKey)
+            startAt = legacySaved > 0 ? legacySaved : CollapsPlaybackProgressStore.shared.load(mediaId: itemMeta.mediaId)
         }
         guard startAt > 0, let item = player?.currentItem else { return }
         if item.status == .readyToPlay {
