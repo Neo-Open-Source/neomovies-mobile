@@ -76,10 +76,13 @@ jobs:
           retention-days: 7
 
   build-ios:
-    runs-on: macos-latest
+    runs-on: macos-15
     if: ${{ inputs.platform == 'all' || inputs.platform == 'ios' }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
 
       - uses: actions/setup-node@v4
         with:
