@@ -532,14 +532,18 @@ public class NeomoviesCoreModule: Module {
       let store = CollapsPlaybackProgressStore.shared
       let allDefaults = UserDefaults.standard.dictionaryRepresentation()
       let prefix = store.positionKeyPrefix
-      guard let regex = try? NSRegularExpression(pattern: "^kp_(\\d+)_s(\\d+)_e(\\d+)$") else { return [] }
+      guard
+        let episodeRegex = try? NSRegularExpression(pattern: "^kp_(\\d+)_s(\\d+)_e(\\d+)$"),
+        let movieRegex = try? NSRegularExpression(pattern: "^kp_(\\d+)$")
+      else { return [] }
 
       var records: [[String: Any]] = []
+      var seriesKpIds = Set<Int>()
       for key in allDefaults.keys {
         guard key.hasPrefix(prefix) else { continue }
         let mediaId = String(key.dropFirst(prefix.count))
         let range = NSRange(mediaId.startIndex..., in: mediaId)
-        guard let match = regex.firstMatch(in: mediaId, range: range) else { continue }
+        guard let match = episodeRegex.firstMatch(in: mediaId, range: range) else { continue }
         guard
           let kidRange = Range(match.range(at: 1), in: mediaId),
           let sRange   = Range(match.range(at: 2), in: mediaId),
@@ -550,6 +554,7 @@ public class NeomoviesCoreModule: Module {
         else { continue }
 
         if let kpId = kpId, itemKpId != kpId { continue }
+        seriesKpIds.insert(itemKpId)
 
         let positionMs   = Int(store.load(mediaId: mediaId) * 1000)
         let durationMs   = Int(store.loadDuration(mediaId: mediaId) * 1000)
@@ -565,6 +570,41 @@ public class NeomoviesCoreModule: Module {
           "season": season,
           "episode": episode,
           "kind": "episode",
+          "positionMs": positionMs,
+          "durationMs": durationMs,
+          "progressPercent": progressPercent,
+          "watched": watched,
+          "updatedAtMs": updatedAtMs,
+        ])
+      }
+
+      for key in allDefaults.keys {
+        guard key.hasPrefix(prefix) else { continue }
+        let mediaId = String(key.dropFirst(prefix.count))
+        let range = NSRange(mediaId.startIndex..., in: mediaId)
+        guard let match = movieRegex.firstMatch(in: mediaId, range: range) else { continue }
+        guard
+          let kidRange = Range(match.range(at: 1), in: mediaId),
+          let itemKpId = Int(mediaId[kidRange])
+        else { continue }
+
+        if let kpId = kpId, itemKpId != kpId { continue }
+        if seriesKpIds.contains(itemKpId) { continue }
+
+        let positionMs = Int(store.load(mediaId: mediaId) * 1000)
+        let durationMs = Int(store.loadDuration(mediaId: mediaId) * 1000)
+        let watched = store.loadWatched(mediaId: mediaId)
+        let updatedAtMs = store.loadUpdatedAtMs(mediaId: mediaId)
+        let progressPercent = clampedProgressPercent(positionMs: positionMs, durationMs: durationMs)
+
+        records.append([
+          "schemaVersion": 1,
+          "source": "collaps",
+          "mediaId": mediaId,
+          "kpId": itemKpId,
+          "season": NSNull(),
+          "episode": NSNull(),
+          "kind": "movie_or_generic",
           "positionMs": positionMs,
           "durationMs": durationMs,
           "progressPercent": progressPercent,

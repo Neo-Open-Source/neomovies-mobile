@@ -14,7 +14,7 @@ export type ContinueWatchingItem = {
 };
 
 const MIN_PROGRESS_PERCENT = 3;
-const MIN_ITEMS_TO_SHOW = 3;
+const MIN_ITEMS_TO_SHOW = 1;
 const MAX_ITEMS = 20;
 
 export function useContinueWatching(): ContinueWatchingItem[] {

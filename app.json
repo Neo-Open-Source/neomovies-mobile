@@ -51,7 +51,8 @@
       "./plugins/withSwift5Pods"
     ],
     "extra": {
-      "releaseType": "prerelease",
+      "branch": "prerelease",
+      "build": "pre7",
       "router": {},
       "eas": {
         "projectId": "93c3388a-0813-45cf-8a6e-d728b781f2f9"

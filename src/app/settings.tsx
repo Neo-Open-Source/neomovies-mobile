@@ -4,7 +4,7 @@ import { Alert, Pressable, View } from 'react-native';
 import { Database, Globe, Palette, Server } from 'lucide-react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
-import * as FileSystem from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 
 import { ListRowItem } from '@/components/list-row-item';
 import { ThemedText } from '@/components/themed-text';
@@ -26,35 +26,25 @@ function formatBytes(bytes: number): string {
 
 async function getCacheSize(): Promise<number> {
   try {
-    const cacheDir = FileSystem.cacheDirectory;
-    if (!cacheDir) return 0;
-    return await getDirectorySize(cacheDir);
+    return getDirectorySize(Paths.cache);
   } catch {
     return 0;
   }
 }
 
-async function getDirectorySize(dir: string): Promise<number> {
+function getDirectorySize(dir: Directory): number {
   let total = 0;
-  let items: string[];
   try {
-    items = await FileSystem.readDirectoryAsync(dir);
+    const items = dir.list();
+    for (const item of items) {
+      if (item instanceof Directory) {
+        total += getDirectorySize(item);
+      } else if (item instanceof File) {
+        total += item.size;
+      }
+    }
   } catch {
     return 0;
-  }
-  for (const item of items) {
-    const path = dir.endsWith('/') ? `${dir}${item}` : `${dir}/${item}`;
-    try {
-      const info = await FileSystem.getInfoAsync(path, { size: true });
-      if (!info.exists) continue;
-      if (info.isDirectory) {
-        total += await getDirectorySize(path);
-      } else if ('size' in info && typeof info.size === 'number') {
-        total += info.size;
-      }
-    } catch {
-      // Skip inaccessible items
-    }
   }
   return total;
 }
@@ -66,15 +56,12 @@ async function clearAllCache(): Promise<void> {
     await Image.clearMemoryCache();
     
     // Clear file system cache
-    const cacheDir = FileSystem.cacheDirectory;
-    if (cacheDir) {
-      const items = await FileSystem.readDirectoryAsync(cacheDir);
-      for (const item of items) {
-        try {
-          await FileSystem.deleteAsync(`${cacheDir}${item}`, { idempotent: true });
-        } catch {
-          // Skip undeletable items
-        }
+    const items = Paths.cache.list();
+    for (const item of items) {
+      try {
+        item.delete();
+      } catch {
+        // Skip undeletable items
       }
     }
   } catch {

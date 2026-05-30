@@ -69,7 +69,15 @@ export function ScreenTitle() {
               if (router.canGoBack()) {
                 router.back();
               } else {
-                router.replace('/(tabs)');
+                const fallbackRoute =
+                  pathname === '/settings' ||
+                  pathname === '/about' ||
+                  pathname === '/credits' ||
+                  pathname === '/settings/language' ||
+                  pathname === '/settings/source'
+                    ? '/profile'
+                    : '/';
+                router.replace(fallbackRoute);
               }
             }}
             style={screenTitleStyles.backButtonHit}>

@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, View } from 'react-native';
+import { Alert, Platform, View } from 'react-native';
 import Constants from 'expo-constants';
 import { Image } from 'expo-image';
 import { FileText, RefreshCw, Sparkles } from 'lucide-react-native';
@@ -19,12 +19,21 @@ export default function AboutScreen() {
   const theme = useTheme();
   const styles = createAboutScreenStyles(theme);
   const { copy } = useI18n();
+  const extra = Constants.expoConfig?.extra as
+    | { branch?: string; build?: string; releaseType?: string; githubRepo?: string }
+    | undefined;
   const appName = Constants.expoConfig?.name || copy.appName;
   const version = Constants.nativeAppVersion || Constants.expoConfig?.version || '—';
-  const branch = ((Constants.expoConfig?.extra as { branch?: string; releaseType?: string } | undefined)?.releaseType)
-    || ((Constants.expoConfig?.extra as { branch?: string } | undefined)?.branch)
-    || (__DEV__ ? 'dev' : 'release');
-  const build = Constants.nativeBuildVersion || '—';
+  const releaseType = extra?.releaseType || (__DEV__ ? 'dev' : 'release');
+  const branch = extra?.branch || releaseType;
+  const configBuild =
+    Platform.OS === 'ios'
+      ? Constants.expoConfig?.ios?.buildNumber
+      : Constants.expoConfig?.android?.versionCode != null
+        ? String(Constants.expoConfig.android.versionCode)
+        : null;
+  const baseBuild = Constants.nativeBuildVersion || configBuild || '—';
+  const build = extra?.build || baseBuild;
   const appIconUri = Constants.expoConfig?.icon || null;
   const appIconSource = appIconUri && /^https?:\/\//.test(appIconUri)
     ? { uri: appIconUri }
@@ -37,7 +46,7 @@ export default function AboutScreen() {
   const handleCheckUpdates = async () => {
     setChecking(true);
     try {
-      const repo = ((Constants.expoConfig?.extra as { githubRepo?: string } | undefined)?.githubRepo) || 'Neo-Open-Source/neomovies-mobile';
+      const repo = extra?.githubRepo || 'Neo-Open-Source/neomovies-mobile';
       const includePrerelease = branch === 'prerelease';
       const latest = await fetchLatestRelease(repo, includePrerelease);
 
