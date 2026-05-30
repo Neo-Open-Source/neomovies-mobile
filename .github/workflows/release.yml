@@ -25,19 +25,9 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: android
-            runs-on: ubuntu-latest
-          - platform: ios
-            runs-on: macos-latest
-    runs-on: ${{ matrix.runs-on }}
-    if: |
-      inputs.platform == 'all' ||
-      inputs.platform == matrix.platform
+  build-android:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'android' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,29 +57,70 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Build ${{ matrix.platform }}
-        run: |
-          eas build \
-            --platform ${{ matrix.platform }} \
-            --profile preview \
-            --local \
-            --non-interactive \
-            --output ./build.${{ matrix.platform == 'android' && 'apk' || 'tar.gz' }}
+      - name: Build Android
+        run: eas build --platform android --profile preview --local --non-interactive --output ./build.apk
 
       - name: Rename artifact
         id: artifact
-        shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
           SHORT_SHA=$(git rev-parse --short HEAD)
-          EXT=${{ matrix.platform == 'android' && 'apk' || 'tar.gz' }}
-          NAME="neomovies-${{ matrix.platform }}-${{ inputs.release_type }}-${VERSION}-${SHORT_SHA}.${EXT}"
-          mv ./build.${EXT} ./${NAME}
+          NAME="neomovies-android-${{ inputs.release_type }}-${VERSION}-${SHORT_SHA}.apk"
+          mv ./build.apk ./${NAME}
           echo "name=${NAME}" >> $GITHUB_OUTPUT
-          echo "path=./${NAME}" >> $GITHUB_OUTPUT
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.artifact.outputs.name }}
-          path: ${{ steps.artifact.outputs.path }}
+          path: ${{ steps.artifact.outputs.name }}
+          retention-days: 7
+
+  build-ios:
+    runs-on: macos-latest
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'ios' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Patch app.json releaseType
+        run: |
+          node -e "
+            const fs = require('fs');
+            const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            cfg.expo.extra = cfg.expo.extra || {};
+            cfg.expo.extra.releaseType = '${{ inputs.release_type }}';
+            fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2));
+          "
+
+      - uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build iOS (simulator)
+        run: eas build --platform ios --profile preview --local --non-interactive --output ./build.tar.gz
+
+      - name: Rename artifact
+        id: artifact
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          NAME="neomovies-ios-${{ inputs.release_type }}-${VERSION}-${SHORT_SHA}.tar.gz"
+          mv ./build.tar.gz ./${NAME}
+          echo "name=${NAME}" >> $GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ steps.artifact.outputs.name }}
           retention-days: 7
