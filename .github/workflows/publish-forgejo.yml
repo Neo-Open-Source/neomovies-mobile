@@ -14,7 +14,7 @@ permissions:
 env:
   FORGEJO_API_URL: https://git.disroot.org/api/v1
   FORGEJO_OWNER: Neo
-  FORGEJO_REPO: neomovies-android
+  FORGEJO_REPO: neomovies-mobile
 
 jobs:
   publish-to-forgejo:
