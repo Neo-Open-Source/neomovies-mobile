@@ -11,7 +11,7 @@
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Neo-Open-Source/neomovies-mobile?color=black&label=Stable&logo=github)](https://github.com/Neo-Open-Source/neomovies-mobile/releases/latest/)
 [![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/Neo-Open-Source/neomovies-mobile?include_prereleases&label=Preview&logo=github)](https://github.com/Neo-Open-Source/neomovies-mobile/releases/)
 [![GitHub all releases](https://img.shields.io/github/downloads/Neo-Open-Source/neomovies-mobile/total?label=Downloads&logo=github)](https://www.neomovies.ru)
-[![Telegram](https://img.shields.io/badge/Telegram-NeoMovies-blue?style=flat&logo=telegram)](https://t.me/neomovies_news)
+[![Telegram](https://img.shields.io/badge/Telegram-Neo-Open-Source-blue?style=flat&logo=telegram)](https://t.me/neomovies_news)
 
 Cross-platform streaming client built with Expo/React Native for iOS and Android.
 
@@ -111,12 +111,12 @@ Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTIN
 
 ## License
 
-See [LICENSE](LICENSE).
+Apache 2.0: See [LICENSE](LICENSE).
 
 ---
 
 <div align="center">
 
-**Made with ❤️ by Neo Team**
+**Made with ❤️ by Neo Open Source**
 
 </div>
