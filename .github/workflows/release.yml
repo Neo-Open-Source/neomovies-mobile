@@ -110,16 +110,19 @@ jobs:
           retention-days: 7
 
   build-ios:
-    runs-on: macos-14
+    # macos-15 поставляется с Xcode 16.2 (требование RN 0.83)
+    runs-on: macos-15
     needs: meta
     if: ${{ needs.meta.outputs.build_ios == 'true' }}
     steps:
       - uses: actions/checkout@v4
 
-      # Xcode 15.2 = Swift 5.9 — fixes @MainActor issues in expo-modules-core
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.2'
+          xcode-version: '16.2'
+
+      - name: Print Swift version
+        run: swift --version
 
       - uses: actions/setup-node@v4
         with:
@@ -153,6 +156,26 @@ jobs:
       - name: Install CocoaPods
         working-directory: ios
         run: pod install
+
+      # Патчим SWIFT_VERSION напрямую в Pods.xcodeproj через xcodeproj gem
+      # (надёжнее чем regex в Podfile или аргументы xcodebuild)
+      - name: Set SWIFT_VERSION=5.9 for all pods
+        working-directory: ios
+        run: |
+          ruby - <<'RUBY'
+          require 'xcodeproj'
+          path = 'Pods/Pods.xcodeproj'
+          project = Xcodeproj::Project.open(path)
+          count = 0
+          project.targets.each do |target|
+            target.build_configurations.each do |config|
+              config.build_settings['SWIFT_VERSION'] = '5.9'
+              count += 1
+            end
+          end
+          project.save
+          puts "✅ SWIFT_VERSION=5.9 applied to #{count} build configurations"
+          RUBY
 
       - run: gem install xcpretty --no-document
 
