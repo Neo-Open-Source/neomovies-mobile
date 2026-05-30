@@ -110,7 +110,6 @@ jobs:
           retention-days: 7
 
   build-ios:
-    # macos-15 поставляется с Xcode 16.2 (требование RN 0.83)
     runs-on: macos-15
     needs: meta
     if: ${{ needs.meta.outputs.build_ios == 'true' }}
@@ -157,8 +156,6 @@ jobs:
         working-directory: ios
         run: pod install
 
-      # Патчим SWIFT_VERSION напрямую в Pods.xcodeproj через xcodeproj gem
-      # (надёжнее чем regex в Podfile или аргументы xcodebuild)
       - name: Set SWIFT_VERSION=5.9 for all pods
         working-directory: ios
         run: |
@@ -193,13 +190,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log" | xcpretty --color
-          if grep -q "BUILD FAILED" "$RUNNER_TEMP/xcodebuild.log"; then
-            echo ""
-            echo "=== BUILD FAILED — showing errors ==="
-            grep -E "error:" "$RUNNER_TEMP/xcodebuild.log" | head -60
-            exit 1
-          fi
+            build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log" || true
+          echo ""
+          echo "=== ERRORS ==="
+          grep -E "error:" "$RUNNER_TEMP/xcodebuild.log" | grep -v "^note:" | head -80
+          echo ""
+          echo "=== LAST 50 LINES ==="
+          tail -50 "$RUNNER_TEMP/xcodebuild.log"
+          grep -q "BUILD FAILED" "$RUNNER_TEMP/xcodebuild.log" && exit 1 || exit 0
 
       - name: Package IPA
         id: ipa
