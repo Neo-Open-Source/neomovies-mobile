@@ -120,9 +120,6 @@ jobs:
         with:
           xcode-version: '16.2'
 
-      - name: Print Swift version
-        run: swift --version
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -144,7 +141,7 @@ jobs:
           "
 
       - name: Expo prebuild iOS
-        run: npx expo prebuild --platform ios --no-install
+        run: npx expo prebuild --platform ios --no-install 2>&1 | grep -vE "^(Skipping|Using|Writing|Read)" || true
 
       - uses: actions/cache@v4
         with:
@@ -154,50 +151,56 @@ jobs:
 
       - name: Install CocoaPods
         working-directory: ios
-        run: pod install
+        run: pod install --silent
 
       - name: Set SWIFT_VERSION=5.9 for all pods
         working-directory: ios
         run: |
           ruby - <<'RUBY'
           require 'xcodeproj'
-          path = 'Pods/Pods.xcodeproj'
-          project = Xcodeproj::Project.open(path)
-          count = 0
+          project = Xcodeproj::Project.open('Pods/Pods.xcodeproj')
           project.targets.each do |target|
             target.build_configurations.each do |config|
               config.build_settings['SWIFT_VERSION'] = '5.9'
-              count += 1
             end
           end
           project.save
-          puts "✅ SWIFT_VERSION=5.9 applied to #{count} build configurations"
+          puts "✅ SWIFT_VERSION=5.9 applied to #{project.targets.count} pod targets"
           RUBY
-
-      - run: gem install xcpretty --no-document
 
       - name: Build unsigned .app
         env:
           APP_VERSION: ${{ needs.meta.outputs.version }}
         run: |
           set -euo pipefail
+          LOG="$RUNNER_TEMP/xcodebuild.log"
+
           xcodebuild \
             -workspace ios/NeoMovies.xcworkspace \
             -scheme NeoMovies \
             -configuration Release \
             -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            ONLY_ACTIVE_ARCH=NO \
+            EXCLUDED_ARCHS="x86_64 i386" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log" || true
-          echo ""
-          echo "=== ERRORS ==="
-          grep -E "error:" "$RUNNER_TEMP/xcodebuild.log" | grep -v "^note:" | head -80
-          echo ""
-          echo "=== LAST 50 LINES ==="
-          tail -50 "$RUNNER_TEMP/xcodebuild.log"
-          grep -q "BUILD FAILED" "$RUNNER_TEMP/xcodebuild.log" && exit 1 || exit 0
+            build > "$LOG" 2>&1 || true
+
+          # Show only meaningful lines during the build
+          grep -E "(error:|BUILD FAILED|BUILD SUCCEEDED|CompileSwift|Linking)" "$LOG" \
+            | grep -v "^note:" || true
+
+          if grep -q "BUILD FAILED" "$LOG"; then
+            echo ""
+            echo "=== ERRORS ==="
+            grep "error:" "$LOG" | grep -v "^note:" | head -60
+            exit 1
+          fi
+
+          echo "✅ Build succeeded"
 
       - name: Package IPA
         id: ipa
@@ -211,13 +214,13 @@ jobs:
             -not -path "*simulator*" | grep -v "\.appex" | head -1)
 
           if [ -z "$APP_PATH" ]; then
-            echo "❌ .app not found. DerivedData contents:"
-            find "$RUNNER_TEMP/DerivedData" -maxdepth 5 -type d | head -30 \
-              || echo "(DerivedData directory missing entirely)"
+            echo "❌ .app not found"
+            find "$RUNNER_TEMP/DerivedData" -maxdepth 5 -type d | head -20 \
+              || echo "(DerivedData missing)"
             exit 1
           fi
 
-          echo "✅ Found .app: $APP_PATH"
+          echo "✅ Found: $APP_PATH"
           PAYLOAD_DIR="$RUNNER_TEMP/Payload"
           mkdir -p "$PAYLOAD_DIR/Payload"
           cp -r "$APP_PATH" "$PAYLOAD_DIR/Payload/"
