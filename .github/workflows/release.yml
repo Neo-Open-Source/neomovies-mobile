@@ -87,14 +87,6 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
-          restore-keys: ${{ runner.os }}-gradle-
-
       - name: Patch app.json releaseType
         run: |
           node -e "
@@ -105,53 +97,31 @@ jobs:
             fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2));
           "
 
-      - name: Setup keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-        run: |
-          if [ -z "${KEYSTORE_BASE64:-}" ]; then exit 0; fi
-          echo "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 -d > "$RUNNER_TEMP/release.keystore"
-          echo "RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> $GITHUB_ENV
-          echo "RELEASE_KEYSTORE_PASSWORD=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
-          echo "RELEASE_KEY_ALIAS=${{ secrets.RELEASE_KEY_ALIAS }}" >> $GITHUB_ENV
-          echo "RELEASE_KEY_PASSWORD=${{ secrets.RELEASE_KEY_PASSWORD }}" >> $GITHUB_ENV
-
-      - name: Expo prebuild Android
-        run: npx expo prebuild --platform android --no-install
-
-      - run: chmod +x android/gradlew
+      - uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Build APK
         env:
-          CI: 'true'
           APP_VERSION: ${{ needs.meta.outputs.version }}
-        working-directory: android
-        run: ./gradlew :app:assembleRelease --build-cache --no-daemon
+        run: eas build --platform android --profile preview --local --non-interactive --output ${{ github.workspace }}/app-release.apk
 
-      - name: Rename APKs
+      - name: Rename APK
         id: apk
         shell: bash
         run: |
-          set -e
           VERSION="${{ needs.meta.outputs.version }}"
           RELEASE_TYPE="${{ needs.meta.outputs.release_type }}"
-          IN_DIR="android/app/build/outputs/apk/release"
-          OUT_DIR="$IN_DIR/renamed"
-          mkdir -p "$OUT_DIR"
-          for f in "$IN_DIR"/*.apk; do
-            b="$(basename "$f")"
-            if [[ "$b" == *"arm64-v8a"* ]]; then abi="arm64-v8a"
-            elif [[ "$b" == *"armeabi-v7a"* ]]; then abi="armeabi-v7a"
-            elif [[ "$b" == *"x86_64"* ]]; then abi="x86_64"
-            else abi="universal"; fi
-            cp -f "$f" "$OUT_DIR/neomovies-mobile-android-$RELEASE_TYPE-$VERSION-$abi.apk"
-          done
-          echo "dir=$OUT_DIR" >> $GITHUB_OUTPUT
+          NAME="neomovies-mobile-android-$RELEASE_TYPE-$VERSION.apk"
+          mv "${{ github.workspace }}/app-release.apk" "${{ github.workspace }}/$NAME"
+          echo "path=${{ github.workspace }}/$NAME" >> $GITHUB_OUTPUT
 
       - uses: actions/upload-artifact@v4
         with:
-          name: apks-${{ needs.meta.outputs.release_type }}
-          path: ${{ steps.apk.outputs.dir }}/*.apk
+          name: apk-${{ needs.meta.outputs.release_type }}
+          path: ${{ steps.apk.outputs.path }}
 
   build-ios:
     runs-on: macos-latest
@@ -217,7 +187,7 @@ jobs:
         run: |
           VERSION="${{ needs.meta.outputs.version }}"
           RELEASE_TYPE="${{ needs.meta.outputs.release_type }}"
-          APP_PATH=$(find "$RUNNER_TEMP/DerivedData" -name "*.app" -not -path "*/iphoneos*simulator*" | grep -v "\.appex" | head -1)
+          APP_PATH=$(find "$RUNNER_TEMP/DerivedData" -name "*.app" -not -path "*simulator*" | grep -v "\.appex" | head -1)
           echo "Found .app: $APP_PATH"
           if [ -z "$APP_PATH" ]; then
             echo "All .app paths found:"; find "$RUNNER_TEMP/DerivedData" -name "*.app" | head -20; exit 1
@@ -241,7 +211,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: apks-${{ needs.meta.outputs.release_type }}
+          name: apk-${{ needs.meta.outputs.release_type }}
           path: dist/android
 
       - uses: actions/download-artifact@v4
