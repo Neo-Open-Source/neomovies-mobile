@@ -17,8 +17,7 @@ Cross-platform streaming client built with Expo/React Native for iOS and Android
 
 </div>
 
-<img src=".github/assets/banner.png" alt="NeoMovies banner" width="100%" />
-
+<img src=".github/assets/banner.png" alt="NeoMovies banner" width="90%" style="border-radius: 16px; display: block; margin: 0 auto;" />
 ## Features
 
 - 🎬 **Multiple Sources** — Alloha and Collaps streaming providers
